@@ -53,16 +53,14 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   return cachedModel;
 }
 
-// מנוע פענוח ותיקון JSON מתקדם ביותר (חסין לחלוטין לטעויות מבנה של המודל)
+// מנוע פענוח ותיקון JSON משודרג – מתקן אוטומטית פסיקים חסרים בין איברים ואובייקטים
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
-  // ניסיון ראשון: פענוח ישיר
   try {
     return JSON.parse(cleaned);
   } catch (e) {}
 
-  // איתור גבולות ה-JSON האמיתיים
   let firstOpen = cleaned.indexOf('{');
   let lastClose = cleaned.lastIndexOf('}');
   if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
@@ -71,18 +69,17 @@ function robustJsonParse(text: string) {
     try {
       return JSON.parse(jsonCandidate);
     } catch (e2) {
-      // תיקון בסיסי של פסיקים ורווחים
+      // תיקון אגרסיבי של פסיקים חסרים ומבנים שבורים
       let repaired = jsonCandidate
         .replace(/[\u0000-\u001F]+/g, " ")
-        .replace(/,\s*([\]}])/g, "$1")
-        .replace(/}\s*\{/g, "},{")
-        .replace(/\]\s*\[/g, "],[")
+        .replace(/,\s*([\]}])/g, "$1") // הסרת פסיקים מיותרים בסוף מערך/אובייקט
+        .replace(/([}\"])\s*([{\"])/g, "$1,$2") // הוספת פסיק חסר בין אובייקטים
+        .replace(/([0-9truefalseull\]\)])\s*([{\["])/g, "$1,$2") // הוספת פסיק חסר בין איברים במערך
         .replace(/\n/g, " ");
 
       try {
         return JSON.parse(repaired);
       } catch (e3) {
-        // פתרון סופי ועוצמתי: פענוח כתחביר אובייקט בטוח (מטפל במפתחות ללא מרכאות, גרשיים בודדים וכו')
         try {
           const evaluated = (new Function(`return ${jsonCandidate}`))();
           if (evaluated && typeof evaluated === 'object') {
@@ -128,7 +125,7 @@ export async function POST(req: NextRequest) {
 
     const routingInstruction = 
       "CRITICAL RULES:\n" +
-      "1. Return ONLY a valid JSON object starting with '{' and ending with '}'.\n" +
+      "1. Return ONLY a valid JSON object starting with '{' and ending with '}'. DO NOT wrap in markdown backticks or extra text.\n" +
       "2. STRICT GEOGRAPHIC ACCURACY (LAT/LNG): Every single activity MUST contain real latitude (lat) and longitude (lng) coordinates corresponding to the real-world location.\n" +
       "3. TRAVEL STYLES:\n" +
       "   - חסכוני (Budget): אטרקציות חינמיות, תחבורה ציבורית ואוכל זול.\n" +
@@ -157,8 +154,9 @@ export async function POST(req: NextRequest) {
         messages: [
           { role: "user", content: combinedPrompt }
         ],
-        temperature: 0.4,
-        max_tokens: 4096
+        temperature: 0.3,
+        max_tokens: 4096,
+        response_format: { type: "json_object" }
       }),
     });
 
