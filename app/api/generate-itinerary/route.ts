@@ -136,8 +136,7 @@ export async function POST(req: NextRequest) {
           { role: "user", content: combinedPrompt }
         ],
         temperature: 0.1,
-        max_tokens: 4096,
-        response_format: { type: "json_object" }
+        max_tokens: 4096
       }),
     });
 
