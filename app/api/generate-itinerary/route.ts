@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: "GROQ_API_KEY is missing in .env.local" }, { status: 500 });
+      return NextResponse.json({, error: "GROQ_API_KEY is missing in .env.local" }, { status: 500 });
     }
 
     const modelName = await getAvailableGroqModel(apiKey);
@@ -122,14 +122,20 @@ export async function POST(req: NextRequest) {
       ? "LONG TRIP OPTIMIZATION: Keep descriptions concise to ensure all days fit completely within the token limit."
       : "";
 
+    // הנחיות מעודכנות ומדויקות למניעת חזרתיות ולדיוק בספורט ובקזינו
     const routingInstruction = 
       "CRITICAL RULES:\n" +
       "1. Return ONLY a valid JSON object starting with '{' and ending with '}'.\n" +
       "2. STRICT GEOGRAPHIC ACCURACY (LAT/LNG): Every single activity MUST contain real latitude (lat) and longitude (lng) coordinates corresponding to the real-world location.\n" +
-      "3. TRAVEL STYLES: Integrate requested styles (חסכוני, ספורט, פנאי, קזינו, etc.) accurately.\n" +
-      "4. COMPLETE DAYS COVERAGE: Generate ALL requested days (Day 1 through Day " + days + ") fully.\n" +
-      "5. " + lengthInstruction + "\n" +
-      "6. Starting Point: " + (startPoint || destination) + ".";
+      "3. TRAVEL STYLES REFINEMENT:\n" +
+      "   - חסכוני (Budget): אטרקציות חינמיות, תחבורה ציבורית ואוכל זול.\n" +
+      "   - ספורט (Sports): חובה להתמקד אך ורק באירועי ספורט מקצועיים גדולים, אצטדיוני ענק (כמו משחקי ליגת העל, פרמייר ליג, NBA, יורוליג) או מירוצי מכוניות בינלאומיים. אסור בהחלט להציע בריכות שחייה סתמיות, חדרי כושר או פעילויות ספורט חובבניות קטנות.\n" +
+      "   - פנאי (Leisure & Culture): בתי אופרה, תיאטראות, סדנאות והצגות תרבות.\n" +
+      "   - קזינו (Casino): שילוב בתי קזינו או מתחמי הימורים **לכל היותר פעם אחת או פעמיים** בכל תקופת הטיול, ולא בכל ערב.\n" +
+      "4. NO REPETITION & HIGH DIVERSITY: חל איסור מוחלט לחזור על עצמך! כל יום חייב לכלול אטרקציות, שכונות ומסעדות שונות לחלוטין. אל תמליץ על אותו סוג מקום פעמיים.\n" +
+      "5. COMPLETE DAYS COVERAGE: Generate ALL requested days (Day 1 through Day " + days + ") fully.\n" +
+      "6. " + lengthInstruction + "\n" +
+      "7. Starting Point: " + (startPoint || destination) + ".";
 
     const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || "N/A"}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel style: ${travelStyle}\nInstruction: ${languageInstruction}\n${routingInstruction}`;
 
@@ -148,7 +154,7 @@ export async function POST(req: NextRequest) {
         messages: [
           { role: "user", content: combinedPrompt }
         ],
-        temperature: 0.5, // העלאה ל-0.5 מונעת מהמודל להתרסק ולהחזיר תוכן ריק
+        temperature: 0.4, // מאוזן מאוד – שומר על יצירתיות ומונע חזרתיות
         max_tokens: 4096
       }),
     });
