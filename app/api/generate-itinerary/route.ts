@@ -118,15 +118,14 @@ export async function POST(req: NextRequest) {
       ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew."
       : "All JSON keys and values MUST be in English.";
 
-    // הוספת הנחיית אורך דינמית בהתאם למספר הימים כדי למנוע חיתוך בטיולים ארוכים
     const lengthInstruction = days > 10 
       ? "LONG TRIP OPTIMIZATION: Since this is a long trip (" + days + " days), keep descriptions concise, punchy, and direct to ensure all days fit completely within the token limit."
       : "";
 
     const routingInstruction = 
       "CRITICAL RULES:\n" +
-      "1. Return ONLY a valid JSON object starting with '{' and ending with '}'.\n" +
-      "2. STRICT GEOGRAPHIC ACCURACY (LAT/LNG): Every single activity MUST contain real, highly-accurate latitude (lat) and longitude (lng) coordinates corresponding strictly to the real-world location (e.g., beaches on coastlines, attractions at exact physical addresses).\n" +
+      "1. Return ONLY a valid JSON object starting with '{' and ending with '}'. DO NOT wrap in extra conversational text.\n" +
+      "2. STRICT GEOGRAPHIC ACCURACY (LAT/LNG): Every single activity MUST contain real, highly-accurate latitude (lat) and longitude (lng) coordinates corresponding strictly to the real-world location.\n" +
       "3. TRAVEL STYLES INTEGRATION:\n" +
       "   - חסכוני (Budget): אטרקציות חינמיות, תחבורה ציבורית ואוכל זול.\n" +
       "   - ספורט (Sports): אירועי ספורט בולטים, אצטדיונים, משחקי כדורגל/כדורסל או מירוצים.\n" +
@@ -154,8 +153,8 @@ export async function POST(req: NextRequest) {
           { role: "user", content: combinedPrompt }
         ],
         temperature: 0.1,
-        max_tokens: 4096,
-        response_format: { type: "json_object" }
+        max_tokens: 4096
+        // הוסרה הגדרת ה-response_format כדי למנוע את שגיאת ה-JSON validation של Groq
       }),
     });
 
