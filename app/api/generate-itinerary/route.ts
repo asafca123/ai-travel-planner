@@ -156,8 +156,8 @@ export async function POST(req: NextRequest) {
           { role: "user", content: combinedPrompt }
         ],
         temperature: 0.3,
-        max_tokens: 4096,
-        response_format: { type: "json_object" }
+        max_tokens: 4096
+        // הוסרה לגמרי הגדרת ה-response_format כדי למנוע את החסימה של Groq
       }),
     });
 
