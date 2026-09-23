@@ -1,12 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const MODEL_NAME = "llama-3.3-70b-versatile";
+let cachedModel: string = "";
 
 async function getAvailableGroqModel(apiKey: string): Promise<string> {
-  return MODEL_NAME;
+  if (cachedModel !== "") return cachedModel;
+
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/models", {
+      headers: { "Authorization": `Bearer ${apiKey}` }
+    });
+    
+    if (res.ok) {
+      const data = await res.json();
+      const models = (data.data || []).map((m: any) => m.id);
+      
+      // סינון מדויק שמונע גישה למודלי אודיו, גארד או מודלים שאינם נתמכים במפתח
+      const validModels = models.filter((id: string) => {
+        const lower = id.toLowerCase();
+        return !lower.includes("guard") &&
+               !lower.includes("whisper") &&
+               !lower.includes("audio") &&
+               !lower.includes("embed") &&
+               !lower.includes("vision") &&
+               !lower.includes("canopy") &&
+               !lower.includes("orpheus") &&
+               !lower.includes("tts");
+      });
+
+      const preferred = validModels.find((id: string) => 
+        id.includes("llama-3.1-8b-instant") || 
+        id.includes("llama-3.1-70b") ||
+        id.includes("mixtral")
+      );
+
+      if (preferred) {
+        cachedModel = preferred;
+        return cachedModel;
+      }
+
+      if (validModels.length > 0) {
+        cachedModel = validModels[0];
+        return cachedModel;
+      }
+    }
+  } catch (e) {}
+
+  cachedModel = "llama-3.1-8b-instant";
+  return cachedModel;
 }
 
-// מנוע פענוח ותיקון JSON חסין לחלוטין
+// מנוע פענוח ותיקון JSON חסין לחלוטין (מטפל בחיתוכי טוקנים, פסיקים ומבנים שבורים)
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
@@ -61,7 +104,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const { destination, startPoint, startDate, days, travelStyle } = body;
+    const { destination, startPoint, startDate, days, travelStyle, language = "he" } = body;
 
     if (!destination || !days || !travelStyle) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -71,6 +114,8 @@ export async function POST(req: NextRequest) {
     if (!apiKey) {
       return NextResponse.json({ error: "GROQ_API_KEY is missing in .env.local" }, { status: 500 });
     }
+
+    const modelName = await getAvailableGroqModel(apiKey);
 
     const lengthConstraint = days > 7 
       ? "LONG TRIP OPTIMIZATION: Keep activity descriptions concise and brief (1-2 short sentences max) so the entire response fits securely within the token limit."
@@ -122,7 +167,7 @@ Rules:
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: MODEL_NAME,
+        model: modelName,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
@@ -136,6 +181,7 @@ Rules:
 
     if (!apiResponse.ok) {
       console.error("===== GROQ API ERROR =====", responseText);
+      cachedModel = ""; 
       return NextResponse.json({ error: `Groq API Error: ${responseText}` }, { status: 500 });
     }
 
@@ -157,7 +203,7 @@ Rules:
     } catch (parseErr: any) {
       console.error("JSON Parsing Error, using safe fallback:", parseErr.message);
       
-      // מנגנון גיבוי אוטומטי למקרה קיצוני – מבטיח שהאפליקציה לעולם לא תקרוס מול משתמשים
+      // מנגנון גיבוי אוטומטי מלא למקרה קיצוני – מבטיח שהאפליקציה לעולם לא תקרוס
       parsedJson = {
         tripTitle: `מסע מדהים אל ${destination}`,
         destination: destination,
