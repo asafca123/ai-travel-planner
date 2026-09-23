@@ -85,7 +85,7 @@ function robustJsonParse(text: string) {
             .replace(/'/g, '"');
           return JSON.parse(superRepaired);
         } catch (e4) {
-          throw new Error("JSON Repair failed: " + (e3 as Error).message);
+          throw new Error("JSON Repair failed: " + (e4 as Error).message);
         }
       }
     }
@@ -119,19 +119,15 @@ export async function POST(req: NextRequest) {
       : "All JSON keys and values MUST be in English.";
 
     const lengthInstruction = days > 10 
-      ? "LONG TRIP OPTIMIZATION: Since this is a long trip (" + days + " days), keep descriptions concise, punchy, and direct to ensure all days fit completely within the token limit."
+      ? "LONG TRIP OPTIMIZATION: Keep descriptions concise to ensure all days fit completely within the token limit."
       : "";
 
     const routingInstruction = 
       "CRITICAL RULES:\n" +
-      "1. Return ONLY a valid JSON object starting with '{' and ending with '}'. DO NOT wrap in extra conversational text.\n" +
-      "2. STRICT GEOGRAPHIC ACCURACY (LAT/LNG): Every single activity MUST contain real, highly-accurate latitude (lat) and longitude (lng) coordinates corresponding strictly to the real-world location.\n" +
-      "3. TRAVEL STYLES INTEGRATION:\n" +
-      "   - חסכוני (Budget): אטרקציות חינמיות, תחבורה ציבורית ואוכל זול.\n" +
-      "   - ספורט (Sports): אירועי ספורט בולטים, אצטדיונים, משחקי כדורגל/כדורסל או מירוצים.\n" +
-      "   - פנאי (Leisure & Culture): בתי אופרה, תיאטראות, סדנאות והצגות.\n" +
-      "   - קזינו (Casino): בתי קזינו ומקומות הימורים מובילים.\n" +
-      "4. COMPLETE DAYS COVERAGE: Generate ALL requested days (Day 1 through Day " + days + ") fully without skipping.\n" +
+      "1. Return ONLY a valid JSON object starting with '{' and ending with '}'.\n" +
+      "2. STRICT GEOGRAPHIC ACCURACY (LAT/LNG): Every single activity MUST contain real latitude (lat) and longitude (lng) coordinates corresponding to the real-world location.\n" +
+      "3. TRAVEL STYLES: Integrate requested styles (חסכוני, ספורט, פנאי, קזינו, etc.) accurately.\n" +
+      "4. COMPLETE DAYS COVERAGE: Generate ALL requested days (Day 1 through Day " + days + ") fully.\n" +
       "5. " + lengthInstruction + "\n" +
       "6. Starting Point: " + (startPoint || destination) + ".";
 
@@ -152,9 +148,8 @@ export async function POST(req: NextRequest) {
         messages: [
           { role: "user", content: combinedPrompt }
         ],
-        temperature: 0.1,
+        temperature: 0.5, // העלאה ל-0.5 מונעת מהמודל להתרסק ולהחזיר תוכן ריק
         max_tokens: 4096
-        // הוסרה הגדרת ה-response_format כדי למנוע את שגיאת ה-JSON validation של Groq
       }),
     });
 
