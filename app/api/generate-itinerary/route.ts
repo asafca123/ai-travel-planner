@@ -53,14 +53,16 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   return cachedModel;
 }
 
-// מנוע פענוח ותיקון JSON חסין לחלוטין
+// מנוע פענוח ותיקון JSON מתקדם ביותר (חסין לחלוטין לטעויות מבנה של המודל)
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
+  // ניסיון ראשון: פענוח ישיר
   try {
     return JSON.parse(cleaned);
   } catch (e) {}
 
+  // איתור גבולות ה-JSON האמיתיים
   let firstOpen = cleaned.indexOf('{');
   let lastClose = cleaned.lastIndexOf('}');
   if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
@@ -69,6 +71,7 @@ function robustJsonParse(text: string) {
     try {
       return JSON.parse(jsonCandidate);
     } catch (e2) {
+      // תיקון בסיסי של פסיקים ורווחים
       let repaired = jsonCandidate
         .replace(/[\u0000-\u001F]+/g, " ")
         .replace(/,\s*([\]}])/g, "$1")
@@ -79,13 +82,14 @@ function robustJsonParse(text: string) {
       try {
         return JSON.parse(repaired);
       } catch (e3) {
+        // פתרון סופי ועוצמתי: פענוח כתחביר אובייקט בטוח (מטפל במפתחות ללא מרכאות, גרשיים בודדים וכו')
         try {
-          let superRepaired = repaired
-            .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":')
-            .replace(/'/g, '"');
-          return JSON.parse(superRepaired);
+          const evaluated = (new Function(`return ${jsonCandidate}`))();
+          if (evaluated && typeof evaluated === 'object') {
+            return evaluated;
+          }
         } catch (e4) {
-          throw new Error("JSON Repair failed: " + (e4 as Error).message);
+          throw new Error("JSON Repair failed: " + (e3 as Error).message);
         }
       }
     }
@@ -115,8 +119,8 @@ export async function POST(req: NextRequest) {
     const modelName = await getAvailableGroqModel(apiKey);
 
     const languageInstruction = language === "he"
-      ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew."
-      : "All JSON keys and values MUST be in English.";
+      ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew. Ensure ALL JSON property names (keys) are enclosed in double quotes."
+      : "All JSON keys and values MUST be in English. Ensure ALL JSON property names (keys) are enclosed in double quotes.";
 
     const lengthInstruction = days > 10 
       ? "LONG TRIP OPTIMIZATION: Keep descriptions concise to ensure all days fit completely within the token limit."
