@@ -3,14 +3,13 @@ import { ITINERARY_SYSTEM_PROMPT } from "@/lib/prompts";
 
 let cachedModel: string = "";
 
-// פונקציה דינמית שבודקת אילו מודלים זמינים באמת במפתח ה-API שלך ובוחרת את הטוב ביותר
 async function getAvailableGroqModel(apiKey: string): Promise<string> {
   if (cachedModel !== "") return cachedModel;
 
   try {
-    // הכתובת מפוצלת כדי ששום עורך קוד לא יזהה אותה כקישור אוטומטי בהדבקה
-    const modelsUrl = "htt" + "ps://api.groq.com/openai/v1/models";
-    const res = await fetch(modelsUrl, {
+    const proto = "https:";
+    const domain = "//api.groq.com";
+    const res = await fetch(proto + domain + "/openai/v1/models", {
       headers: { "Authorization": `Bearer ${apiKey}` }
     });
     
@@ -29,7 +28,6 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
                !lower.includes("orpheus");
       });
 
-      // חיפוש מודל מועדף מתוך אלו שזמינים אצלך בפועל
       const preferred = validModels.find((id: string) => 
         id.includes("llama-3.1-8b-instant") || 
         id.includes("llama-3.1-70b") ||
@@ -55,7 +53,6 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   return cachedModel;
 }
 
-// מנוע תיקון ופענוח JSON חסין לחלוטין
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
@@ -107,14 +104,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "GROQ_API_KEY is missing in .env.local" }, { status: 500 });
     }
 
-    // קבלת מודל פעיל שמותאם למפתח שלך
     const modelName = await getAvailableGroqModel(apiKey);
 
     const languageInstruction = language === "he"
       ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew."
       : "All JSON keys and values MUST be in English.";
 
-    // הוראה נוקשה למודל לא להשתמש ב-Markdown
     const routingInstruction = 
       "CRITICAL RULES:\n" +
       "1. Return ONLY a valid, raw JSON object starting with '{' and ending with '}'. DO NOT wrap the output in ```json or any markdown formatting. NO conversational text.\n" +
@@ -126,9 +121,9 @@ export async function POST(req: NextRequest) {
 
     const combinedPrompt = `${ITINERARY_SYSTEM_PROMPT}\n\n=== USER REQUEST ===\n${userPrompt}`;
 
-    // הכתובת מפוצלת כדי ששום עורך קוד לא יזהה אותה כקישור אוטומטי בהדבקה
-    const chatUrl = "htt" + "ps://[api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)";
-    const apiResponse = await fetch(chatUrl, {
+    const proto = "https:";
+    const domain = "//api.groq.com";
+    const apiResponse = await fetch(proto + domain + "/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
