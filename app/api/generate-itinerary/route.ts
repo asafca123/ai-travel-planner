@@ -155,7 +155,7 @@ export async function POST(req: NextRequest) {
         messages: [
           { role: "user", content: combinedPrompt }
         ],
-        temperature: 0.3,
+        temperature: 0.6, // העלאה ל-0.6 מונעת מהמודל להתקע ולהחזיר תוכן ריק
         max_tokens: 4096
       }),
     });
