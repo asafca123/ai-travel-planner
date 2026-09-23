@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
 
     const routingInstruction = 
       "CRITICAL RULES:\n" +
-      "1. Return ONLY a valid, raw JSON object starting with '{' and ending with '}'. DO NOT wrap the output in ```json or any markdown formatting. NO conversational text.\n" +
+      "1. Return ONLY a valid JSON object starting with '{' and ending with '}'.\n" +
       "2. DESTINATION COORDINATES: Every single activity MUST have real, precise latitude (lat) and longitude (lng) strictly located INSIDE the requested destination (" + destination + ").\n" +
       "3. COMPLETE DAYS COVERAGE: Generate ALL requested days (Day 1 through Day " + days + ") fully without skipping.\n" +
       "4. Starting Point: " + (startPoint || destination) + ".";
@@ -135,8 +135,8 @@ export async function POST(req: NextRequest) {
           { role: "user", content: combinedPrompt }
         ],
         temperature: 0.1,
-        max_tokens: 4096,
-        response_format: { type: "json_object" }
+        max_tokens: 4096
+        // הוסר ה-response_format כדי למנוע את החסימה של Groq
       }),
     });
 
