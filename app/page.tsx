@@ -15,6 +15,7 @@ const STYLE_OPTIONS = [
   { id: 'sports', label: 'ספורט (משחקים ומירוצים) ⚽' },
   { id: 'leisure', label: 'פנאי (אופרה, סדנאות והצגות) 🎭' },
   { id: 'casino', label: 'קזינו 🎰' },
+  { id: 'nightlife', label: 'חיי לילה 🍸' },
 ];
 
 const DAY_COLORS = [

@@ -69,12 +69,11 @@ function robustJsonParse(text: string) {
     try {
       return JSON.parse(jsonCandidate);
     } catch (e2) {
-      // תיקון אגרסיבי של פסיקים חסרים ומבנים שבורים
       let repaired = jsonCandidate
         .replace(/[\u0000-\u001F]+/g, " ")
-        .replace(/,\s*([\]}])/g, "$1") // הסרת פסיקים מיותרים בסוף מערך/אובייקט
-        .replace(/([}\"])\s*([{\"])/g, "$1,$2") // הוספת פסיק חסר בין אובייקטים
-        .replace(/([0-9truefalseull\]\)])\s*([{\["])/g, "$1,$2") // הוספת פסיק חסר בין איברים במערך
+        .replace(/,\s*([\]}])/g, "$1")
+        .replace(/([}\"])\s*([{\"])/g, "$1,$2")
+        .replace(/([0-9truefalseull\]\)])\s*([{\["])/g, "$1,$2")
         .replace(/\n/g, " ");
 
       try {
@@ -116,7 +115,7 @@ export async function POST(req: NextRequest) {
     const modelName = await getAvailableGroqModel(apiKey);
 
     const languageInstruction = language === "he"
-      ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew. Ensure ALL JSON property names (keys) are enclosed in double quotes."
+      ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, summary, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew. Ensure ALL JSON property names (keys) are enclosed in double quotes."
       : "All JSON keys and values MUST be in English. Ensure ALL JSON property names (keys) are enclosed in double quotes.";
 
     const lengthInstruction = days > 10 
@@ -127,15 +126,17 @@ export async function POST(req: NextRequest) {
       "CRITICAL RULES:\n" +
       "1. Return ONLY a valid JSON object starting with '{' and ending with '}'. DO NOT wrap in markdown backticks or extra text.\n" +
       "2. STRICT GEOGRAPHIC ACCURACY (LAT/LNG): Every single activity MUST contain real latitude (lat) and longitude (lng) coordinates corresponding to the real-world location.\n" +
-      "3. TRAVEL STYLES:\n" +
+      "3. TRAVEL STYLES REFINEMENT:\n" +
       "   - חסכוני (Budget): אטרקציות חינמיות, תחבורה ציבורית ואוכל זול.\n" +
-      "   - ספורט (Sports): חובה להתמקד אך ורק באירועי ספורט מקצועיים גדולים, אצטדיוני ענק (כמו משחקי ליגת העל, פרמייר ליג, NBA, יורוליג) או מירוצי מכוניות בינלאומיים. אסור בהחלט להציע בריכות שחייה סתמיות או חדרי כושר.\n" +
+      "   - ספורט (Sports): אופציונלי בלבד – לכל היותר ביקור/אירוע ספורט מרכזי אחד בכל הטיול, וזאת אך ורק אם מתקיים משחק או מירוץ אמיתי ומקצועי בתאריכים המדויקים.\n" +
       "   - פנאי (Leisure & Culture): בתי אופרה, תיאטראות, סדנאות והצגות תרבות.\n" +
-      "   - קזינו (Casino): שילוב בתי קזינו או מתחמי הימורים לכל היותר פעם אחת או פעמיים בכל תקופת הטיול, ולא בכל ערב.\n" +
-      "4. NO REPETITION & HIGH DIVERSITY: חל איסור מוחלט לחזור על עצמך! כל יום חייב לכלול אטרקציות, שכונות ומסעדות שונות לחלוטין.\n" +
-      "5. COMPLETE DAYS COVERAGE: Generate ALL requested days (Day 1 through Day " + days + ") fully.\n" +
-      "6. " + lengthInstruction + "\n" +
-      "7. Starting Point: " + (startPoint || destination) + ".";
+      "   - קזינו (Casino): שילוב בית קזינו לכל היותר פעם אחת בכל תקופת הטיול.\n" +
+      "   - חיי לילה (Nightlife): שילוב בארים מובילים, פאבים מקומיים, מועדונים ובילויים ליליים באזורים התוססים של העיר.\n" +
+      "4. HOTEL / ACCOMMODATION RECOMMENDATION: בחלק ה-'summary' של המסלול, חובה להוסיף פסקה ייעודית שממליצה איפה הכי כדאי לישון במרכז העיר בהתאם לסגנון הטיול שנבחר.\n" +
+      "5. NO REPETITION & HIGH DIVERSITY: חל איסור מוחלט לחזור על עצמך! כל יום חייב לכלול אטרקציות, שכונות ומסעדות שונות לחלוטין.\n" +
+      "6. COMPLETE DAYS COVERAGE: Generate ALL requested days (Day 1 through Day " + days + ") fully.\n" +
+      "7. " + lengthInstruction + "\n" +
+      "8. Starting Point: " + (startPoint || destination) + ".";
 
     const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || "N/A"}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel style: ${travelStyle}\nInstruction: ${languageInstruction}\n${routingInstruction}`;
 
