@@ -53,13 +53,16 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   return cachedModel;
 }
 
+// מנוע פענוח ותיקון JSON משודרג וחסין לחלוטין
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
+  // ניסיון ראשון: פענוח ישיר
   try {
     return JSON.parse(cleaned);
   } catch (e) {}
 
+  // איתור גבולות ה-JSON האמיתיים
   let firstOpen = cleaned.indexOf('{');
   let lastClose = cleaned.lastIndexOf('}');
   if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
@@ -68,6 +71,7 @@ function robustJsonParse(text: string) {
     try {
       return JSON.parse(jsonCandidate);
     } catch (e2) {
+      // תיקון מתקדם של תווי בקרה, פסיקים מיותרים ורווחים
       let repaired = jsonCandidate
         .replace(/[\u0000-\u001F]+/g, " ")
         .replace(/,\s*([\]}])/g, "$1")
@@ -78,7 +82,15 @@ function robustJsonParse(text: string) {
       try {
         return JSON.parse(repaired);
       } catch (e3) {
-        throw new Error("JSON Repair failed: " + (e3 as Error).message);
+        // ניסיון אחרון ואגרסיבי: ניקוי גרשיים בתוך טקסטים או תיקון מבנה גלובלי
+        try {
+          let superRepaired = repaired
+            .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":') // ווידוא מפתחות במרכאות כפולות
+            .replace(/'/g, '"'); // המרת גרשיים יחידים לכפולות במידת הצורך
+          return JSON.parse(superRepaired);
+        } catch (e4) {
+          throw new Error("JSON Repair failed: " + (e3 as Error).message);
+        }
       }
     }
   }
@@ -107,7 +119,7 @@ export async function POST(req: NextRequest) {
     const modelName = await getAvailableGroqModel(apiKey);
 
     const languageInstruction = language === "he"
-      ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew."
+      ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew. Avoid using unescaped double quotes inside text values."
       : "All JSON keys and values MUST be in English.";
 
     const routingInstruction = 
@@ -135,8 +147,8 @@ export async function POST(req: NextRequest) {
           { role: "user", content: combinedPrompt }
         ],
         temperature: 0.1,
-        max_tokens: 4096
-        // הוסר ה-response_format כדי למנוע את החסימה של Groq
+        max_tokens: 8192,
+        response_format: { type: "json_object" }
       }),
     });
 
