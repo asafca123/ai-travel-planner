@@ -14,19 +14,24 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
       const data = await res.json();
       const models = (data.data || []).map((m: any) => m.id);
       
+      // סינון נוקשה מאוד – רק מודלי טקסט נקיים של Llama או Mixtral
       const validModels = models.filter((id: string) => {
         const lower = id.toLowerCase();
         return !lower.includes("guard") &&
                !lower.includes("whisper") &&
                !lower.includes("audio") &&
                !lower.includes("embed") &&
-               !lower.includes("vision");
+               !lower.includes("vision") &&
+               !lower.includes("canopy") &&
+               !lower.includes("orpheus") &&
+               !lower.includes("tts");
       });
 
       const preferred = validModels.find((id: string) => 
         id.includes("llama-3.1-8b-instant") || 
+        id.includes("llama-3.3-70b-versatile") ||
         id.includes("llama-3.1-70b") ||
-        id.includes("llama3")
+        id.includes("mixtral-8x7b")
       );
 
       if (preferred) {
@@ -45,7 +50,7 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   return cachedModel;
 }
 
-// מנוע פענוח ותיקון JSON חסין לחלוטין (מתקן אוטומטית פסיקים חסרים בין איברים ואובייקטים)
+// מנוע פענוח ותיקון JSON חסין לחלוטין
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
@@ -63,10 +68,10 @@ function robustJsonParse(text: string) {
     } catch (e2) {
       let repaired = jsonCandidate
         .replace(/[\u0000-\u001F]+/g, " ")
-        .replace(/,\s*([\]}])/g, "$1") // הסרת פסיקים מיותרים בסוף
-        .replace(/([}\"])\s*([{\"])/g, "$1,$2") // הוספת פסיק בין אובייקטים
-        .replace(/([0-9truefalseull\]\)])\s*([{\["])/g, "$1,$2") // הוספת פסיק בין איברים במערך
-        .replace(/(['"])\s+(['"])/g, "$1,$2") // הוספת פסיק בין מחרוזות במערך
+        .replace(/,\s*([\]}])/g, "$1")
+        .replace(/([}\"])\s*([{\"])/g, "$1,$2")
+        .replace(/([0-9truefalseull\]\)])\s*([{\["])/g, "$1,$2")
+        .replace(/(['"])\s+(['"])/g, "$1,$2")
         .replace(/\n/g, " ");
 
       try {
