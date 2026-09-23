@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ITINERARY_SYSTEM_PROMPT } from "@/lib/prompts";
 
-// התיקון: הגדרת המשתנה כטקסט בלבד במקום לאפשר לו להיות null
 let cachedModel: string = "";
 
 // פונקציה דינמית שבודקת אילו מודלים זמינים באמת במפתח ה-API שלך ובוחרת את הטוב ביותר
@@ -113,9 +112,10 @@ export async function POST(req: NextRequest) {
       ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew."
       : "All JSON keys and values MUST be in English.";
 
+    // הוספנו פה הוראה סופר נוקשה לא להשתמש ב-Markdown או בטקסט חופשי בכלל
     const routingInstruction = 
       "CRITICAL RULES:\n" +
-      "1. Return ONLY a valid JSON object starting with '{' and ending with '}'.\n" +
+      "1. Return ONLY a valid, raw JSON object starting with '{' and ending with '}'. DO NOT wrap the output in ```json or any markdown formatting. NO conversational text.\n" +
       "2. DESTINATION COORDINATES: Every single activity MUST have real, precise latitude (lat) and longitude (lng) strictly located INSIDE the requested destination (" + destination + ").\n" +
       "3. COMPLETE DAYS COVERAGE: Generate ALL requested days (Day 1 through Day " + days + ") fully without skipping.\n" +
       "4. Starting Point: " + (startPoint || destination) + ".";
@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
 
     const combinedPrompt = `${ITINERARY_SYSTEM_PROMPT}\n\n=== USER REQUEST ===\n${userPrompt}`;
 
-    const apiResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const apiResponse = await fetch("[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -136,7 +136,8 @@ export async function POST(req: NextRequest) {
           { role: "user", content: combinedPrompt }
         ],
         temperature: 0.1,
-        max_tokens: 4096
+        max_tokens: 4096,
+        response_format: { type: "json_object" } // החזרנו את ההגבלה ל-JSON
       }),
     });
 
@@ -144,7 +145,7 @@ export async function POST(req: NextRequest) {
 
     if (!apiResponse.ok) {
       console.error("===== GROQ API ERROR =====", responseText);
-      cachedModel = ""; // איפוס הקאש במקרה שגיאה
+      cachedModel = ""; 
       return NextResponse.json({ error: `Groq API Error: ${responseText}` }, { status: 500 });
     }
 
