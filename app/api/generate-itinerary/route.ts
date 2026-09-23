@@ -14,24 +14,20 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
       const data = await res.json();
       const models = (data.data || []).map((m: any) => m.id);
       
-      // סינון נוקשה מאוד – רק מודלי טקסט נקיים של Llama או Mixtral
       const validModels = models.filter((id: string) => {
         const lower = id.toLowerCase();
         return !lower.includes("guard") &&
                !lower.includes("whisper") &&
                !lower.includes("audio") &&
                !lower.includes("embed") &&
-               !lower.includes("vision") &&
-               !lower.includes("canopy") &&
-               !lower.includes("orpheus") &&
-               !lower.includes("tts");
+               !lower.includes("vision");
       });
 
       const preferred = validModels.find((id: string) => 
         id.includes("llama-3.1-8b-instant") || 
         id.includes("llama-3.3-70b-versatile") ||
         id.includes("llama-3.1-70b") ||
-        id.includes("mixtral-8x7b")
+        id.includes("llama3")
       );
 
       if (preferred) {
@@ -50,7 +46,7 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   return cachedModel;
 }
 
-// מנוע פענוח ותיקון JSON חסין לחלוטין
+// מנוע פענוח ותיקון JSON חסין לחלוטין (מטפל גם בחיתוכי טוקנים וגם בפסיקים חסרים)
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
@@ -59,37 +55,45 @@ function robustJsonParse(text: string) {
   } catch (e) {}
 
   let firstOpen = cleaned.indexOf('{');
-  let lastClose = cleaned.lastIndexOf('}');
-  if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
-    let jsonCandidate = cleaned.substring(firstOpen, lastClose + 1);
-    
-    try {
-      return JSON.parse(jsonCandidate);
-    } catch (e2) {
-      let repaired = jsonCandidate
-        .replace(/[\u0000-\u001F]+/g, " ")
-        .replace(/,\s*([\]}])/g, "$1")
-        .replace(/([}\"])\s*([{\"])/g, "$1,$2")
-        .replace(/([0-9truefalseull\]\)])\s*([{\["])/g, "$1,$2")
-        .replace(/(['"])\s+(['"])/g, "$1,$2")
-        .replace(/\n/g, " ");
+  if (firstOpen !== -1) {
+    let jsonCandidate = cleaned.substring(firstOpen);
 
+    // ניסיון תיקון חיתוך טוקנים (אם ה-JSON נחתך בסוף)
+    let attempts = [
+      jsonCandidate,
+      jsonCandidate + '}',
+      jsonCandidate + ']}',
+      jsonCandidate + '"]}',
+      jsonCandidate + '}]}'
+    ];
+
+    for (let candidate of attempts) {
       try {
+        let repaired = candidate
+          .replace(/[\u0000-\u001F]+/g, " ")
+          .replace(/,\s*([\]}])/g, "$1")
+          .replace(/([}\"])\s*([{\"])/g, "$1,$2")
+          .replace(/([0-9truefalseull\]\)])\s*([{\["])/g, "$1,$2")
+          .replace(/\n/g, " ");
+
         return JSON.parse(repaired);
-      } catch (e3) {
-        try {
-          const evaluated = (new Function(`return ${jsonCandidate}`))();
-          if (evaluated && typeof evaluated === 'object') {
-            return evaluated;
-          }
-        } catch (e4) {
-          throw new Error("JSON Repair failed: " + (e3 as Error).message);
+      } catch (err) {}
+    }
+
+    // ניסיון אחרון בעזרת Function evaluation בטוח
+    try {
+      let lastClose = jsonCandidate.lastIndexOf('}');
+      if (lastClose !== -1) {
+        let trimmed = jsonCandidate.substring(0, lastClose + 1);
+        const evaluated = (new Function(`return ${trimmed}`))();
+        if (evaluated && typeof evaluated === 'object') {
+          return evaluated;
         }
       }
-    }
+    } catch (e4) {}
   }
 
-  throw new Error("No JSON object boundaries found in response");
+  throw new Error("No valid JSON structure could be recovered from response");
 }
 
 export async function POST(req: NextRequest) {
@@ -111,6 +115,10 @@ export async function POST(req: NextRequest) {
     }
 
     const modelName = await getAvailableGroqModel(apiKey);
+
+    const lengthConstraint = days > 7 
+      ? "LONG TRIP OPTIMIZATION: Keep activity descriptions concise and brief (1-2 short sentences max) so the entire response fits securely within the token limit."
+      : "";
 
     const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
 All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebrew.
@@ -146,7 +154,8 @@ Rules:
 - Casino: Max 1 time in the whole trip.
 - Nightlife: Minimal and balanced, not every night.
 - 'hotelRecommendation' MUST recommend areas or neighborhoods in the city center, DO NOT recommend specific hotel names.
-- High diversity, no repetition between days.`;
+- High diversity, no repetition between days.
+- ${lengthConstraint}`;
 
     const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || destination}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel Style: ${travelStyle}`;
 
