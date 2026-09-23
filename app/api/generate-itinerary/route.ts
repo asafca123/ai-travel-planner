@@ -8,8 +8,9 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   if (cachedModel !== "") return cachedModel;
 
   try {
-    // הכתובת מפוצלת כדי ש-VS Code לא יהרוס אותה כקישור
-    const res = await fetch("https://api.groq.com" + "/openai/v1/models", {
+    // הכתובת מפוצלת כדי ששום עורך קוד לא יזהה אותה כקישור אוטומטי בהדבקה
+    const modelsUrl = "htt" + "ps://api.groq.com/openai/v1/models";
+    const res = await fetch(modelsUrl, {
       headers: { "Authorization": `Bearer ${apiKey}` }
     });
     
@@ -125,8 +126,9 @@ export async function POST(req: NextRequest) {
 
     const combinedPrompt = `${ITINERARY_SYSTEM_PROMPT}\n\n=== USER REQUEST ===\n${userPrompt}`;
 
-    // הכתובת מפוצלת כדי ש-VS Code לא יהרוס אותה כקישור
-    const apiResponse = await fetch("[https://api.groq.com](https://api.groq.com)" + "/openai/v1/chat/completions", {
+    // הכתובת מפוצלת כדי ששום עורך קוד לא יזהה אותה כקישור אוטומטי בהדבקה
+    const chatUrl = "htt" + "ps://[api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)";
+    const apiResponse = await fetch(chatUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
