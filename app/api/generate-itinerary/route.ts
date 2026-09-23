@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ITINERARY_SYSTEM_PROMPT } from "@/lib/prompts";
 
-let cachedModel: string | null = null;
+// התיקון: הגדרת המשתנה כטקסט בלבד במקום לאפשר לו להיות null
+let cachedModel: string = "";
 
 // פונקציה דינמית שבודקת אילו מודלים זמינים באמת במפתח ה-API שלך ובוחרת את הטוב ביותר
 async function getAvailableGroqModel(apiKey: string): Promise<string> {
-  if (cachedModel) return cachedModel;
+  if (cachedModel !== "") return cachedModel;
 
   try {
     const res = await fetch("https://api.groq.com/openai/v1/models", {
@@ -144,7 +145,7 @@ export async function POST(req: NextRequest) {
 
     if (!apiResponse.ok) {
       console.error("===== GROQ API ERROR =====", responseText);
-      cachedModel = null; // איפוס הקאש למקרה שהמודל נחסם
+      cachedModel = ""; // איפוס הקאש במקרה שגיאה
       return NextResponse.json({ error: `Groq API Error: ${responseText}` }, { status: 500 });
     }
 
