@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
 
     const routingInstruction = 
       "CRITICAL RULES:\n" +
-      "1. Return ONLY a valid JSON object starting with '{' and ending with '}'. DO NOT wrap in markdown backticks or extra text.\n" +
+      "1. Return ONLY a valid JSON object starting with '{' and ending with '}'. DO NOT wrap in markdown backticks or extra text, and DO NOT include conversational filler.\n" +
       "2. STRICT GEOGRAPHIC ACCURACY (LAT/LNG): Every single activity MUST contain real latitude (lat) and longitude (lng) coordinates corresponding to the real-world location.\n" +
       "3. TRAVEL STYLES REFINEMENT:\n" +
       "   - חסכוני (Budget): אטרקציות חינמיות, תחבורה ציבורית ואוכל זול.\n" +
@@ -138,9 +138,8 @@ export async function POST(req: NextRequest) {
       "7. " + lengthInstruction + "\n" +
       "8. Starting Point: " + (startPoint || destination) + ".";
 
-    const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || "N/A"}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel style: ${travelStyle}\nInstruction: ${languageInstruction}\n${routingInstruction}`;
-
-    const combinedPrompt = `${ITINERARY_SYSTEM_PROMPT}\n\n=== USER REQUEST ===\n${userPrompt}`;
+    const systemContent = `${ITINERARY_SYSTEM_PROMPT}\n\n${languageInstruction}\n${routingInstruction}`;
+    const userContent = `Destination: ${destination}\nStarting Point: ${startPoint || "N/A"}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel style: ${travelStyle}`;
 
     const proto = "https:";
     const domain = "//api.groq.com";
@@ -153,9 +152,10 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: modelName,
         messages: [
-          { role: "user", content: combinedPrompt }
+          { role: "system", content: systemContent },
+          { role: "user", content: userContent }
         ],
-        temperature: 0.6, // העלאה ל-0.6 מונעת מהמודל להתקע ולהחזיר תוכן ריק
+        temperature: 0.5,
         max_tokens: 4096
       }),
     });
