@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ITINERARY_SYSTEM_PROMPT } from "@/lib/prompts";
 
 let cachedModel: string = "";
 
@@ -7,9 +6,7 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   if (cachedModel !== "") return cachedModel;
 
   try {
-    const proto = "https:";
-    const domain = "//api.groq.com";
-    const res = await fetch(proto + domain + "/openai/v1/models", {
+    const res = await fetch("https://api.groq.com/openai/v1/models", {
       headers: { "Authorization": `Bearer ${apiKey}` }
     });
     
@@ -23,18 +20,13 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
                !lower.includes("whisper") &&
                !lower.includes("audio") &&
                !lower.includes("embed") &&
-               !lower.includes("vision") &&
-               !lower.includes("canopy") &&
-               !lower.includes("orpheus");
+               !lower.includes("vision");
       });
 
       const preferred = validModels.find((id: string) => 
         id.includes("llama-3.1-8b-instant") || 
         id.includes("llama-3.1-70b") ||
-        id.includes("mixtral-8x7b") ||
-        id.includes("gemma2") ||
-        id.includes("llama3") ||
-        id.includes("llama")
+        id.includes("llama3")
       );
 
       if (preferred) {
@@ -53,7 +45,7 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   return cachedModel;
 }
 
-// מנוע פענוח ותיקון JSON משודרג – מתקן אוטומטית פסיקים חסרים בין איברים ואובייקטים
+// מנוע פענוח ותיקון JSON חסין לחלוטין
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
@@ -114,36 +106,45 @@ export async function POST(req: NextRequest) {
 
     const modelName = await getAvailableGroqModel(apiKey);
 
-    const languageInstruction = language === "he"
-      ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, summary, hotelRecommendation, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew. Ensure ALL JSON property names (keys) are enclosed in double quotes."
-      : "All JSON keys and values MUST be in English. Ensure ALL JSON property names (keys) are enclosed in double quotes.";
+    const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
+All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebrew.
 
-    const lengthInstruction = days > 10 
-      ? "LONG TRIP OPTIMIZATION: Keep descriptions concise to ensure all days fit completely within the token limit."
-      : "";
+Required JSON Structure:
+{
+  "tripTitle": "...",
+  "destination": "...",
+  "summary": "...",
+  "hotelRecommendation": "המלצה מפורטת על האזור או השכונה המומלצת ביותר במרכז העיר בהתאם לסגנון (ללא שמות מלונות ספציפיים, רק אזורים ושכונות).",
+  "days": [
+    {
+      "day": 1,
+      "title": "...",
+      "activities": [
+        {
+          "time": "09:00",
+          "name": "...",
+          "description": "...",
+          "category": "...",
+          "lat": 31.0,
+          "lng": 34.8
+        }
+      ]
+    }
+  ]
+}
 
-    const routingInstruction = 
-      "CRITICAL RULES:\n" +
-      "1. Return ONLY a valid JSON object starting with '{' and ending with '}'. DO NOT wrap in markdown backticks or extra text, and DO NOT include conversational filler.\n" +
-      "2. STRICT GEOGRAPHIC ACCURACY (LAT/LNG): Every single activity MUST contain real latitude (lat) and longitude (lng) coordinates corresponding to the real-world location.\n" +
-      "3. TRAVEL STYLES REFINEMENT:\n" +
-      "   - חסכוני (Budget): אטרקציות חינמיות, תחבורה ציבורית ואוכל זול.\n" +
-      "   - ספורט (Sports): אופציונלי בלבד – לכל היותר אירוע ספורט מרכזי אחד בכל הטיול, וזאת אך ורק אם מתקיים משחק או מירוץ מקצועי אמיתי ופעיל בלוח הזמנים של התאריכים המדויקים (" + startDate + " והלאה).\n" +
-      "   - פנאי (Leisure & Culture): בתי אופרה, תיאטראות, סדנאות והצגות תרבות.\n" +
-      "   - קזינו (Casino): שילוב בית קזינו לכל היותר פעם אחת בכל תקופת הטיול.\n" +
-      "   - חיי לילה (Nightlife): בילויים ליליים במינון מצומצם ומדוד ולא בכל ערב.\n" +
-      "4. AREA RECOMMENDATION FIELD ('hotelRecommendation'): You MUST include a dedicated key named 'hotelRecommendation' in the JSON object containing a detailed paragraph in Hebrew recommending the best **area, neighborhood, or zone** in the city center to stay in, based on the chosen travel style. **DO NOT recommend specific hotel names**, only the ideal neighborhood/zone description.\n" +
-      "5. NO REPETITION & HIGH DIVERSITY: חל איסור מוחלט לחזור על עצמך! כל יום חייב לכלול אטרקציות, שכונות ומסעדות שונות לחלוטין.\n" +
-      "6. COMPLETE DAYS COVERAGE: Generate ALL requested days (Day 1 through Day " + days + ") fully.\n" +
-      "7. " + lengthInstruction + "\n" +
-      "8. Starting Point: " + (startPoint || destination) + ".";
+Rules:
+- Generate ALL requested days (Day 1 through Day ${days}) fully without skipping.
+- Ensure strict real-world latitude (lat) and longitude (lng) coordinates.
+- Sports: Max 1 event, only if a real professional match occurs on the exact dates starting ${startDate || "today"}.
+- Casino: Max 1 time in the whole trip.
+- Nightlife: Minimal and balanced, not every night.
+- 'hotelRecommendation' MUST recommend areas or neighborhoods in the city center, DO NOT recommend specific hotel names.
+- High diversity, no repetition between days.`;
 
-    const systemContent = `${ITINERARY_SYSTEM_PROMPT}\n\n${languageInstruction}\n${routingInstruction}`;
-    const userContent = `Destination: ${destination}\nStarting Point: ${startPoint || "N/A"}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel style: ${travelStyle}`;
+    const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || destination}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel Style: ${travelStyle}`;
 
-    const proto = "https:";
-    const domain = "//api.groq.com";
-    const apiResponse = await fetch(proto + domain + "/openai/v1/chat/completions", {
+    const apiResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -152,10 +153,10 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: modelName,
         messages: [
-          { role: "system", content: systemContent },
-          { role: "user", content: userContent }
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
         ],
-        temperature: 0.5,
+        temperature: 0.6,
         max_tokens: 4096
       }),
     });
@@ -172,7 +173,7 @@ export async function POST(req: NextRequest) {
     try {
       data = JSON.parse(responseText);
     } catch (parseErr) {
-      return NextResponse.json({ error: "Invalid JSON response from Groq wrapper", raw: responseText }, { status: 500 });
+      return NextResponse.json({ error: "Invalid JSON response", raw: responseText }, { status: 500 });
     }
 
     let rawText = data.choices?.[0]?.message?.content;
