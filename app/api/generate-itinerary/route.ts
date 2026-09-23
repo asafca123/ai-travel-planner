@@ -118,18 +118,23 @@ export async function POST(req: NextRequest) {
       ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew."
       : "All JSON keys and values MUST be in English.";
 
-    // הוספת הנחיות נוקשות לדיוק גיאוגרפי ותמיכה בסגנונות החדשים
+    // הוספת הנחיית אורך דינמית בהתאם למספר הימים כדי למנוע חיתוך בטיולים ארוכים
+    const lengthInstruction = days > 10 
+      ? "LONG TRIP OPTIMIZATION: Since this is a long trip (" + days + " days), keep descriptions concise, punchy, and direct to ensure all days fit completely within the token limit."
+      : "";
+
     const routingInstruction = 
       "CRITICAL RULES:\n" +
       "1. Return ONLY a valid JSON object starting with '{' and ending with '}'.\n" +
-      "2. STRICT GEOGRAPHIC ACCURACY (LAT/LNG): Every single activity MUST contain real, highly-accurate latitude (lat) and longitude (lng) coordinates corresponding strictly to the real-world location (e.g., beaches must be on actual coastlines, attractions at their exact physical addresses, NO placing landmarks in fields or random locations).\n" +
-      "3. NEW TRAVEL STYLES INTEGRATION:\n" +
-      "   - אם נבחר סגנון 'חסכוני' (Budget): יש לשלב אטרקציות חינמיות, תחבורה ציבורית, אפשרויות אוכל זולות ומקומות שלא דורשים כניסה יקרה.\n" +
-      "   - אם נבחר סגנון 'ספורט' (Sports): יש לשלב אירועי ספורט בולטים, אצטדיונים מרכזיים, משחקי כדורגל/כדורסל או מתחמי מירוצים רלוונטיים ליעד.\n" +
-      "   - אם נבחר סגנון 'פנאי' (Leisure & Culture): יש לשלב בתי אופרה, תיאטראות, סדנאות מקומיות או הצגות תרבות.\n" +
-      "   - אם נבחר סגנון 'קזינו' (Casino): יש לשלב בתי קזינו חוקיים, מתחמי הימורים ובילוי לילה מובילים ביעד.\n" +
+      "2. STRICT GEOGRAPHIC ACCURACY (LAT/LNG): Every single activity MUST contain real, highly-accurate latitude (lat) and longitude (lng) coordinates corresponding strictly to the real-world location (e.g., beaches on coastlines, attractions at exact physical addresses).\n" +
+      "3. TRAVEL STYLES INTEGRATION:\n" +
+      "   - חסכוני (Budget): אטרקציות חינמיות, תחבורה ציבורית ואוכל זול.\n" +
+      "   - ספורט (Sports): אירועי ספורט בולטים, אצטדיונים, משחקי כדורגל/כדורסל או מירוצים.\n" +
+      "   - פנאי (Leisure & Culture): בתי אופרה, תיאטראות, סדנאות והצגות.\n" +
+      "   - קזינו (Casino): בתי קזינו ומקומות הימורים מובילים.\n" +
       "4. COMPLETE DAYS COVERAGE: Generate ALL requested days (Day 1 through Day " + days + ") fully without skipping.\n" +
-      "5. Starting Point: " + (startPoint || destination) + ".";
+      "5. " + lengthInstruction + "\n" +
+      "6. Starting Point: " + (startPoint || destination) + ".";
 
     const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || "N/A"}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel style: ${travelStyle}\nInstruction: ${languageInstruction}\n${routingInstruction}`;
 
@@ -149,7 +154,7 @@ export async function POST(req: NextRequest) {
           { role: "user", content: combinedPrompt }
         ],
         temperature: 0.1,
-        max_tokens: 8192,
+        max_tokens: 4096,
         response_format: { type: "json_object" }
       }),
     });
