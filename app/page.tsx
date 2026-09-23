@@ -11,6 +11,10 @@ const STYLE_OPTIONS = [
   { id: 'solo', label: 'סולו 🎒' },
   { id: 'backpacker', label: 'תרמילאי ⛺' },
   { id: 'luxury', label: 'יוקרתי ✨' },
+  { id: 'budget', label: 'חסכוני 🪙' },
+  { id: 'sports', label: 'ספורט (משחקים ומירוצים) ⚽' },
+  { id: 'leisure', label: 'פנאי (אופרה, סדנאות והצגות) 🎭' },
+  { id: 'casino', label: 'קזינו 🎰' },
 ];
 
 const DAY_COLORS = [
@@ -147,7 +151,7 @@ export default function Home() {
       const map = L.map(mapRef.current).setView(center, allPoints.length > 0 ? 12 : 6);
       mapInstanceRef.current = map;
 
-      // שימוש במפת לווין גלובלית של Esri (נראית כמו גלובוס מדהים מהחלל, ללא שום חותמות מים)
+      // שימוש במפת לווין גלובלית של Esri
       L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         maxZoom: 19,
         attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-eGP'
@@ -155,7 +159,6 @@ export default function Home() {
 
       const markersGroup = L.featureGroup();
 
-      // מעבר על כל יום בנפרד כדי לצבוע את המרקרים והמסלולים בצבע המיוחד של אותו יום
       for (let dayIdx = 0; dayIdx < (itinerary.days || []).length; dayIdx++) {
         const day = itinerary.days[dayIdx];
         const acts = day.activities || day.places || day.attractions || day.schedule || day.items || [];
@@ -186,7 +189,6 @@ export default function Home() {
           }
         });
 
-        // יצירת מסלול נסיעה אמיתי בצבע הייחודי של היום הספציפי
         if (dayPoints.length > 1) {
           try {
             const coordsString = dayOsrmCoords.join(';');
@@ -196,7 +198,7 @@ export default function Home() {
             if (data.routes && data.routes[0]) {
               const routeCoordinates = data.routes[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
               L.polyline(routeCoordinates, {
-                color: dayColor, // צבע המסלול הוא בדיוק צבע היום
+                color: dayColor,
                 weight: 5,
                 opacity: 0.9,
                 lineCap: 'round',

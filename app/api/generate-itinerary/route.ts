@@ -53,16 +53,14 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   return cachedModel;
 }
 
-// מנוע פענוח ותיקון JSON משודרג וחסין לחלוטין
+// מנוע פענוח ותיקון JSON חסין לחלוטין
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
-  // ניסיון ראשון: פענוח ישיר
   try {
     return JSON.parse(cleaned);
   } catch (e) {}
 
-  // איתור גבולות ה-JSON האמיתיים
   let firstOpen = cleaned.indexOf('{');
   let lastClose = cleaned.lastIndexOf('}');
   if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
@@ -71,7 +69,6 @@ function robustJsonParse(text: string) {
     try {
       return JSON.parse(jsonCandidate);
     } catch (e2) {
-      // תיקון מתקדם של תווי בקרה, פסיקים מיותרים ורווחים
       let repaired = jsonCandidate
         .replace(/[\u0000-\u001F]+/g, " ")
         .replace(/,\s*([\]}])/g, "$1")
@@ -82,11 +79,10 @@ function robustJsonParse(text: string) {
       try {
         return JSON.parse(repaired);
       } catch (e3) {
-        // ניסיון אחרון ואגרסיבי: ניקוי גרשיים בתוך טקסטים או תיקון מבנה גלובלי
         try {
           let superRepaired = repaired
-            .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":') // ווידוא מפתחות במרכאות כפולות
-            .replace(/'/g, '"'); // המרת גרשיים יחידים לכפולות במידת הצורך
+            .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":')
+            .replace(/'/g, '"');
           return JSON.parse(superRepaired);
         } catch (e4) {
           throw new Error("JSON Repair failed: " + (e3 as Error).message);
@@ -119,15 +115,21 @@ export async function POST(req: NextRequest) {
     const modelName = await getAvailableGroqModel(apiKey);
 
     const languageInstruction = language === "he"
-      ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew. Avoid using unescaped double quotes inside text values."
+      ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew."
       : "All JSON keys and values MUST be in English.";
 
+    // הוספת הנחיות נוקשות לדיוק גיאוגרפי ותמיכה בסגנונות החדשים
     const routingInstruction = 
       "CRITICAL RULES:\n" +
       "1. Return ONLY a valid JSON object starting with '{' and ending with '}'.\n" +
-      "2. DESTINATION COORDINATES: Every single activity MUST have real, precise latitude (lat) and longitude (lng) strictly located INSIDE the requested destination (" + destination + ").\n" +
-      "3. COMPLETE DAYS COVERAGE: Generate ALL requested days (Day 1 through Day " + days + ") fully without skipping.\n" +
-      "4. Starting Point: " + (startPoint || destination) + ".";
+      "2. STRICT GEOGRAPHIC ACCURACY (LAT/LNG): Every single activity MUST contain real, highly-accurate latitude (lat) and longitude (lng) coordinates corresponding strictly to the real-world location (e.g., beaches must be on actual coastlines, attractions at their exact physical addresses, NO placing landmarks in fields or random locations).\n" +
+      "3. NEW TRAVEL STYLES INTEGRATION:\n" +
+      "   - אם נבחר סגנון 'חסכוני' (Budget): יש לשלב אטרקציות חינמיות, תחבורה ציבורית, אפשרויות אוכל זולות ומקומות שלא דורשים כניסה יקרה.\n" +
+      "   - אם נבחר סגנון 'ספורט' (Sports): יש לשלב אירועי ספורט בולטים, אצטדיונים מרכזיים, משחקי כדורגל/כדורסל או מתחמי מירוצים רלוונטיים ליעד.\n" +
+      "   - אם נבחר סגנון 'פנאי' (Leisure & Culture): יש לשלב בתי אופרה, תיאטראות, סדנאות מקומיות או הצגות תרבות.\n" +
+      "   - אם נבחר סגנון 'קזינו' (Casino): יש לשלב בתי קזינו חוקיים, מתחמי הימורים ובילוי לילה מובילים ביעד.\n" +
+      "4. COMPLETE DAYS COVERAGE: Generate ALL requested days (Day 1 through Day " + days + ") fully without skipping.\n" +
+      "5. Starting Point: " + (startPoint || destination) + ".";
 
     const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || "N/A"}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel style: ${travelStyle}\nInstruction: ${languageInstruction}\n${routingInstruction}`;
 
