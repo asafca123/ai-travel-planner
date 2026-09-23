@@ -14,18 +14,22 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
       const data = await res.json();
       const models = (data.data || []).map((m: any) => m.id);
       
+      // סינון ברזל שמונע לחלוטין גישה למודלי אודיו, גארד או קנופי שדורשים אישורים
       const validModels = models.filter((id: string) => {
         const lower = id.toLowerCase();
         return !lower.includes("guard") &&
                !lower.includes("whisper") &&
                !lower.includes("audio") &&
                !lower.includes("embed") &&
-               !lower.includes("vision");
+               !lower.includes("vision") &&
+               !lower.includes("canopy") &&
+               !lower.includes("orpheus") &&
+               !lower.includes("tts");
       });
 
       const preferred = validModels.find((id: string) => 
-        id.includes("llama-3.1-8b-instant") || 
         id.includes("llama-3.3-70b-versatile") ||
+        id.includes("llama-3.1-8b-instant") || 
         id.includes("llama-3.1-70b") ||
         id.includes("llama3")
       );
@@ -42,11 +46,11 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
     }
   } catch (e) {}
 
-  cachedModel = "llama-3.1-8b-instant";
+  cachedModel = "llama-3.3-70b-versatile";
   return cachedModel;
 }
 
-// מנוע פענוח ותיקון JSON חסין לחלוטין (מטפל גם בחיתוכי טוקנים וגם בפסיקים חסרים)
+// מנוע פענוח ותיקון JSON חסין לחלוטין (מטפל גם בחיתוכי טוקנים, פסיקים ומבנים שבורים)
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
@@ -58,7 +62,6 @@ function robustJsonParse(text: string) {
   if (firstOpen !== -1) {
     let jsonCandidate = cleaned.substring(firstOpen);
 
-    // ניסיון תיקון חיתוך טוקנים (אם ה-JSON נחתך בסוף)
     let attempts = [
       jsonCandidate,
       jsonCandidate + '}',
@@ -80,7 +83,6 @@ function robustJsonParse(text: string) {
       } catch (err) {}
     }
 
-    // ניסיון אחרון בעזרת Function evaluation בטוח
     try {
       let lastClose = jsonCandidate.lastIndexOf('}');
       if (lastClose !== -1) {
