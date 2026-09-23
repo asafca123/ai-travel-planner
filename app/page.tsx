@@ -391,9 +391,21 @@ export default function Home() {
               <h2 className="text-3xl font-extrabold text-white mb-3">
                 {itinerary.tripTitle || itinerary.destination || (language === 'he' ? 'מסלול הטיול שלך' : 'Your Itinerary')}
               </h2>
-              <p className="text-sky-200 mb-8 leading-relaxed text-base">
+              <p className="text-sky-200 mb-6 leading-relaxed text-base">
                 {itinerary.summary || itinerary.overview || ''}
               </p>
+
+              {/* כרטיסיית המלצת לינה ייעודית ובולטת */}
+              {itinerary.hotelRecommendation && (
+                <div className="bg-sky-500/15 border border-sky-400/40 rounded-2xl p-6 mb-8 backdrop-blur-md shadow-lg">
+                  <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                    🏨 {language === 'he' ? 'המלצת לינה במרכז העיר' : 'Accommodation Recommendation'}
+                  </h3>
+                  <p className="text-sky-100/95 leading-relaxed text-base" dir="auto">
+                    {itinerary.hotelRecommendation}
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-6">
                 {(itinerary.days || itinerary.itinerary || []).map((day: any, index: number) => {
