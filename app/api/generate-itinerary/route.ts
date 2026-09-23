@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
       ? "CRITICAL RULE: All JSON keys MUST be in English (e.g., tripTitle, destination, days, activities, name, description, lat, lng), but all text values MUST be written in fluent, natural Israeli Hebrew."
       : "All JSON keys and values MUST be in English.";
 
-    // הוספנו פה הוראה סופר נוקשה לא להשתמש ב-Markdown או בטקסט חופשי בכלל
+    // הוראה נוקשה למודל לא להשתמש ב-Markdown
     const routingInstruction = 
       "CRITICAL RULES:\n" +
       "1. Return ONLY a valid, raw JSON object starting with '{' and ending with '}'. DO NOT wrap the output in ```json or any markdown formatting. NO conversational text.\n" +
@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
         ],
         temperature: 0.1,
         max_tokens: 4096,
-        response_format: { type: "json_object" } // החזרנו את ההגבלה ל-JSON
+        response_format: { type: "json_object" }
       }),
     });
 
