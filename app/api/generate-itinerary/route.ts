@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// מאפשר לשרת ב-Vercel לרוץ עד 60 שניות כדי לא לחתוך בקשות באמצע
+export const maxDuration = 60;
+
 let cachedModel: string = "";
 
 async function getAvailableGroqModel(apiKey: string): Promise<string> {
@@ -29,6 +32,7 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
       const preferred = validModels.find((id: string) => 
         id.includes("llama-3.1-8b-instant") || 
         id.includes("llama-3.1-70b") ||
+        id.includes("llama-3.3-70b") ||
         id.includes("mixtral")
       );
 
@@ -48,6 +52,7 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   return cachedModel;
 }
 
+// מנוע פענוח ותיקון JSON חסין לחלוטין
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
@@ -102,7 +107,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    // הוספנו את customPlaces לחילוץ הנתונים מהבקשה
     const { destination, startPoint, startDate, days, travelStyle, customPlaces, language = "he" } = body;
 
     if (!destination || !days || !travelStyle) {
@@ -116,23 +120,29 @@ export async function POST(req: NextRequest) {
 
     const modelName = await getAvailableGroqModel(apiKey);
 
-    const lengthConstraint = days > 7 
-      ? "LONG TRIP OPTIMIZATION: Keep activity descriptions concise and brief (1-2 short sentences max) so the entire response fits securely within the token limit."
-      : "";
+    let parsedJson = null;
+    let attempt = 0;
+    const MAX_ATTEMPTS = 2; // השרת מנסה פעמיים מאחורי הקלעים במקרה שהמודל נחנק או נחתך
+    let lastError = "";
 
-    const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
+    while (attempt < MAX_ATTEMPTS && !parsedJson) {
+      attempt++;
+
+      const lengthConstraint = attempt > 1 || days > 5 
+        ? "LONG TRIP OPTIMIZATION: Keep activity descriptions concise and brief (1 short sentence max) to prevent JSON truncation."
+        : "";
+
+      const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
 All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebrew.
 
 User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
 "${customPlaces || "None provided"}"
 
-CRITICAL ANTI-HALLUCINATION & PRIORITIZATION RULES:
-1. GEOGRAPHIC ANCHORING: If the user provided custom places, treat them as absolute priority core anchors. Build each day's route geographically around them.
-2. PROXIMITY-BASED DINING: Select restaurants and cafes that are geographically close to the day's main activities. Do not make the user cross the city for a meal.
-3. STRICT REALITY CHECK: DO NOT INVENT PLACES. Every restaurant, attraction, casino, or extreme sport spot MUST be a real, legally operating, and verifiable physical location in the destination.
-4. CASINO: Only include a casino if a real, legal one exists there. If not, omit it entirely.
-5. EXTREME SPORTS: If selected, include real, established locations for activities like surfing, kitesurfing, or rock climbing. DO NOT invent names of beaches or mountains.
-6. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values corresponding to the real-world location. Do not guess coordinates.
+CRITICAL ANTI-HALLUCINATION & OPTIMIZATION RULES:
+1. GEOGRAPHIC ANCHORING: Build each day's route geographically around the user's custom places (if provided).
+2. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining in the area (e.g., "מסעדת טאפאס מקומית ברובע הגותי", "בית קפה אותנטי ליד המוזיאון").
+3. STRICT REALITY CHECK: DO NOT INVENT PLACES. Every attraction, casino, or extreme sport spot MUST be a real, legally operating, and verifiable physical location. 
+4. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values.
 
 Required JSON Structure:
 {
@@ -167,51 +177,48 @@ Rules:
 - High diversity, no repetition between days.
 - ${lengthConstraint}`;
 
-    const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || destination}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel Style: ${travelStyle}`;
+      const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || destination}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel Style: ${travelStyle}`;
 
-    const apiResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: modelName,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        temperature: 0.4, // הורדתי מעט את הטמפרטורה כדי למנוע יצירתיות יתר והמצאת נתונים
-        max_tokens: 4096
-      }),
-    });
+      try {
+        const apiResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: modelName,
+            response_format: { type: "json_object" }, // כופה על המודל לייצר JSON
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt }
+            ],
+            temperature: 0.5,
+            max_tokens: 4096
+          }),
+        });
 
-    const responseText = await apiResponse.text();
+        const responseText = await apiResponse.text();
 
-    if (!apiResponse.ok) {
-      console.error("===== GROQ API ERROR =====", responseText);
-      cachedModel = ""; 
-      return NextResponse.json({ error: `Groq API Error: ${responseText}` }, { status: 500 });
+        if (!apiResponse.ok) {
+          lastError = responseText;
+          continue; // מדלג לניסיון הבא
+        }
+
+        const data = JSON.parse(responseText);
+        const rawText = data.choices?.[0]?.message?.content;
+        
+        if (rawText) {
+          parsedJson = robustJsonParse(rawText);
+        }
+      } catch (err: any) {
+        lastError = err.message;
+      }
     }
 
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch (parseErr) {
-      return NextResponse.json({ error: "Invalid JSON response", raw: responseText }, { status: 500 });
-    }
-
-    let rawText = data.choices?.[0]?.message?.content;
-    if (!rawText) {
-      return NextResponse.json({ error: "Model returned empty content." }, { status: 500 });
-    }
-
-    let parsedJson;
-    try {
-      parsedJson = robustJsonParse(rawText);
-    } catch (parseErr: any) {
-      console.error("JSON Parsing Error, using safe fallback:", parseErr.message);
-      
+    // רשת הביטחון הסופית (החזרתי אותה במלואה) כדי שלעולם לא תקרוס האפליקציה למשתמש
+    if (!parsedJson) {
+      console.error("All attempts failed, using final fallback. Last error:", lastError);
       parsedJson = {
         tripTitle: `מסע מדהים אל ${destination}`,
         destination: destination,
@@ -231,8 +238,8 @@ Rules:
             },
             {
               time: "13:00",
-              name: "ארוחת צהריים מקומית",
-              description: "הפסקה לארוחה במסעדה מומלצת באזור הבילויים.",
+              name: "ארוחת צהריים בסגנון מקומי",
+              description: "הפסקה לארוחה במסעדה מומלצת באזור הבילויים (ללא שם ספציפי).",
               category: "קולינריה",
               lat: 51.5084,
               lng: -0.1268

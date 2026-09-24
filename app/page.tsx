@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 const STYLE_OPTIONS = [
   { id: 'balanced', label: 'מאוזן (תרבות, טבע ואוכל)' },
   { id: 'adventure', label: 'הרפתקאות וטבע 🌲' },
-  { id: 'extreme', label: 'ספורט אתגרי (טיפוס, גלישה) 🧗‍♂️🏄‍♂️' }, // הקטגוריה החדשה!
+  { id: 'extreme', label: 'ספורט אתגרי (טיפוס, גלישה) 🧗‍♂️🏄‍♂️' },
   { id: 'foodie', label: 'קולינריה ומסעדות 🍷' },
   { id: 'relaxed', label: 'נינוח ורגוע ☕' },
   { id: 'family', label: 'משפחתי 👨‍👩‍👧‍👦' },
@@ -30,19 +30,18 @@ export default function Home() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedStyles, setSelectedStyles] = useState<string[]>(['balanced']);
-  const [customPlaces, setCustomPlaces] = useState(''); // שדה חדש לייבוא מגוגל מפס
+  const [customPlaces, setCustomPlaces] = useState(''); 
   const [language, setLanguage] = useState('he');
   
   const [loading, setLoading] = useState(false);
   const [itinerary, setItinerary] = useState<any>(null);
   const [error, setError] = useState('');
-  const [editMode, setEditMode] = useState(false); // סטייט למצב עריכה
+  const [editMode, setEditMode] = useState(false);
 
   const mapRef = useRef<any>(null);
   const mapInstanceRef = useRef<any>(null);
   const markersMapRef = useRef<{ [key: string]: any }>({});
 
-  // טעינת מסלול שמור מה-LocalStorage כשהאתר עולה
   useEffect(() => {
     const saved = localStorage.getItem('savedItinerary');
     if (saved) {
@@ -52,7 +51,6 @@ export default function Home() {
     }
   }, []);
 
-  // שמירת המסלול ל-LocalStorage בכל פעם שהוא מתעדכן (עריכה / יצירה חדשה)
   useEffect(() => {
     if (itinerary) {
       localStorage.setItem('savedItinerary', JSON.stringify(itinerary));
@@ -104,7 +102,7 @@ export default function Home() {
           startDate,
           days: calculatedDays,
           travelStyle: selectedStyles.join(', '),
-          customPlaces, // שליחת המקומות המיובאים לשרת
+          customPlaces,
           language,
         }),
       });
@@ -119,7 +117,6 @@ export default function Home() {
     }
   };
 
-  // פונקציות לעריכת המסלול (Inline Editing)
   const handleActivityChange = (dayIdx: number, actIdx: number, field: string, value: string) => {
     const updatedItinerary = { ...itinerary };
     updatedItinerary.days[dayIdx].activities[actIdx][field] = value;
@@ -132,7 +129,50 @@ export default function Home() {
     setItinerary(updatedItinerary);
   };
 
-  // פונקציה לייצוא מסלול של יום ספציפי ל-Google Maps
+  const handleAddActivity = (dayIdx: number) => {
+    const updatedItinerary = { ...itinerary };
+    if (!updatedItinerary.days[dayIdx].activities) {
+      updatedItinerary.days[dayIdx].activities = [];
+    }
+    updatedItinerary.days[dayIdx].activities.push({
+      time: "12:00",
+      name: "",
+      description: "",
+      category: "כללי",
+      lat: "",
+      lng: ""
+    });
+    setItinerary(updatedItinerary);
+  };
+
+  // מנוע חיפוש קואורדינטות (Geocoding) חינמי שעובד מאחורי הקלעים
+  const handleAutoGeocode = async (dayIdx: number, actIdx: number, placeName: string) => {
+    if (!placeName || placeName.trim() === '') {
+      alert(language === 'he' ? 'אנא הזן את שם המקום לפני החיפוש.' : 'Please enter a place name first.');
+      return;
+    }
+
+    try {
+      // מחפש את המקום (רצוי לצרף את שם העיר כדי לדייק)
+      const searchQuery = `${placeName} ${itinerary?.destination || destination}`;
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1`);
+      const data = await res.json();
+
+      if (data && data.length > 0) {
+        const { lat, lon } = data[0]; // Nominatim מחזיר lon ולא lng
+        const updatedItinerary = { ...itinerary };
+        updatedItinerary.days[dayIdx].activities[actIdx].lat = parseFloat(lat).toFixed(6);
+        updatedItinerary.days[dayIdx].activities[actIdx].lng = parseFloat(lon).toFixed(6);
+        setItinerary(updatedItinerary);
+      } else {
+        alert(language === 'he' ? 'לא מצאנו קואורדינטות למקום הזה. נסה לדייק את השם (למשל להוסיף את שם העיר).' : 'Location not found. Try a more specific name.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert(language === 'he' ? 'שגיאה בתקשורת עם שרת המפות.' : 'Error contacting map server.');
+    }
+  };
+
   const exportDayToGoogleMaps = (activities: any[]) => {
     const validActs = activities.filter(a => !isNaN(Number(a.lat)) && !isNaN(Number(a.lng)));
     if (validActs.length === 0) {
@@ -185,7 +225,7 @@ export default function Home() {
         acts.forEach((act: any) => {
           const lat = Number(act.lat || act.latitude);
           const lng = Number(act.lng || act.longitude);
-          if (!isNaN(lat) && !isNaN(lng)) {
+          if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
             allPoints.push([lat, lng]);
           }
         });
@@ -214,7 +254,7 @@ export default function Home() {
           const lng = Number(act.lng || act.longitude);
           const name = act.name || act.title || act.placeName || 'נקודה';
           
-          if (!isNaN(lat) && !isNaN(lng)) {
+          if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
             const markerKey = `${dayIdx}-${actIdx}`;
             dayPoints.push([lat, lng]);
             dayOsrmCoords.push(`${lng},${lat}`);
@@ -265,7 +305,7 @@ export default function Home() {
     } else {
       initMap();
     }
-  }, [itinerary]); // מפה תתרנדר מחדש כשהמסלול נערך!
+  }, [itinerary]); 
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-900 via-sky-950 to-indigo-950 py-12 px-4 sm:px-6 lg:px-8 text-gray-100" dir={language === 'he' ? 'rtl' : 'ltr'}>
@@ -338,7 +378,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* שדה ייבוא גוגל מפס */}
             <div>
               <label className="block text-sm font-semibold text-sky-100 mb-2">
                 {language === 'he' ? 'ייבוא מקומות מ-Google Maps (אופציונלי):' : 'Saved places / Google Maps link (Optional):'}
@@ -400,7 +439,6 @@ export default function Home() {
 
             <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border border-white/20">
               
-              {/* כותרת וכפתור מצב עריכה */}
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
                 <h2 className="text-3xl font-extrabold text-white">
                   {itinerary.tripTitle || itinerary.destination || (language === 'he' ? 'מסלול הטיול שלך' : 'Your Itinerary')}
@@ -447,7 +485,6 @@ export default function Home() {
                           </span>
                         </div>
                         
-                        {/* כפתור ייצוא ל-Google Maps לכל יום */}
                         <button 
                           onClick={() => exportDayToGoogleMaps(activities)}
                           className="px-4 py-1.5 bg-green-500/20 text-green-300 border border-green-500/40 rounded-xl text-xs font-bold hover:bg-green-500/30 transition-colors shadow-sm flex items-center justify-center gap-2"
@@ -468,7 +505,6 @@ export default function Home() {
                             const markerKey = `${index}-${actIdx}`;
 
                             return editMode ? (
-                              // תצוגת מצב עריכה
                               <div key={actIdx} className="bg-sky-950/40 p-4 rounded-xl shadow-inner border border-sky-400/40 flex flex-col gap-3">
                                 <div className="flex flex-wrap sm:flex-nowrap gap-2">
                                   <input 
@@ -477,7 +513,7 @@ export default function Home() {
                                   />
                                   <input 
                                     type="text" value={actName} onChange={e => handleActivityChange(index, actIdx, 'name', e.target.value)} 
-                                    className="flex-1 bg-white/5 text-white text-sm p-2.5 rounded-lg border border-white/20 focus:outline-none focus:border-sky-400 min-w-[150px]" placeholder="שם הפעילות" 
+                                    className="flex-1 bg-white/5 text-white text-sm p-2.5 rounded-lg border border-white/20 focus:outline-none focus:border-sky-400 min-w-[150px]" placeholder="שם הפעילות למשל: מגדל אייפל" 
                                   />
                                   <button onClick={() => handleRemoveActivity(index, actIdx)} className="px-4 py-2 bg-red-500/20 text-red-300 font-bold rounded-lg hover:bg-red-500/40 border border-red-500/30 transition-colors">
                                     מחק
@@ -485,11 +521,28 @@ export default function Home() {
                                 </div>
                                 <textarea 
                                   value={actDesc} onChange={e => handleActivityChange(index, actIdx, 'description', e.target.value)} 
-                                  className="w-full bg-white/5 text-white text-sm p-2.5 rounded-lg border border-white/20 h-20 resize-none focus:outline-none focus:border-sky-400" placeholder="תיאור" 
+                                  className="w-full bg-white/5 text-white text-sm p-2.5 rounded-lg border border-white/20 h-16 resize-none focus:outline-none focus:border-sky-400" placeholder="תיאור" 
                                 />
+                                
+                                {/* שורת הקואורדינטות עם כפתור החיפוש האוטומטי */}
+                                <div className="flex gap-2 items-center">
+                                  <input 
+                                    type="text" value={act.lat || ''} onChange={e => handleActivityChange(index, actIdx, 'lat', e.target.value)} 
+                                    className="w-1/3 bg-white/5 text-white text-sm p-2.5 rounded-lg border border-white/20 focus:outline-none focus:border-sky-400" placeholder="Lat" 
+                                  />
+                                  <input 
+                                    type="text" value={act.lng || ''} onChange={e => handleActivityChange(index, actIdx, 'lng', e.target.value)} 
+                                    className="w-1/3 bg-white/5 text-white text-sm p-2.5 rounded-lg border border-white/20 focus:outline-none focus:border-sky-400" placeholder="Lng" 
+                                  />
+                                  <button 
+                                    onClick={() => handleAutoGeocode(index, actIdx, actName)}
+                                    className="w-1/3 py-2.5 bg-sky-500/20 text-sky-300 font-bold rounded-lg hover:bg-sky-500/40 border border-sky-500/30 transition-colors text-xs flex items-center justify-center gap-1"
+                                  >
+                                    🎯 {language === 'he' ? 'מצא קואורדינטות' : 'Auto-Find'}
+                                  </button>
+                                </div>
                               </div>
                             ) : (
-                              // תצוגה רגילה
                               <div 
                                 key={actIdx} 
                                 onClick={() => !isNaN(actLat) && !isNaN(actLng) && focusOnLocation(actLat, actLng, markerKey)}
@@ -505,7 +558,7 @@ export default function Home() {
                                         {actCategory}
                                       </span>
                                     )}
-                                    {!isNaN(actLat) && !isNaN(actLng) && (
+                                    {!isNaN(actLat) && !isNaN(actLng) && actLat !== 0 && actLng !== 0 && (
                                       <span className="text-xs px-2.5 py-1 text-white rounded-full font-mono shadow-sm transition-all" style={{ backgroundColor: dayColor }} dir="ltr">
                                         📍
                                       </span>
@@ -522,6 +575,15 @@ export default function Home() {
                           <p className="text-sky-300/70 text-sm">
                             {language === 'he' ? 'אין פעילויות רשומות ליום זה.' : 'No activities recorded for this day.'}
                           </p>
+                        )}
+
+                        {editMode && (
+                          <button 
+                            onClick={() => handleAddActivity(index)}
+                            className="w-full mt-2 py-3 bg-sky-500/10 text-sky-300 border border-sky-500/30 rounded-xl text-sm font-bold hover:bg-sky-500/20 transition-colors border-dashed"
+                          >
+                            ➕ {language === 'he' ? 'הוסף תחנה חדשה' : 'Add New Stop'}
+                          </button>
                         )}
                       </div>
                     </div>
