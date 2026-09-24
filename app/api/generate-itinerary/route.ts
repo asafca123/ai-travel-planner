@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// מאפשר לשרת לרוץ עד 60 שניות מבלי ש-Vercel יחתוך את הבקשה
 export const maxDuration = 60;
 
 let cachedModel: string = "";
@@ -16,7 +17,6 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
       const data = await res.json();
       const models = (data.data || []).map((m: any) => m.id);
       
-      // סינון מדויק שמונע גישה למודלי אודיו, גארד או מודלים שאינם נתמכים במפתח
       const validModels = models.filter((id: string) => {
         const lower = id.toLowerCase();
         return !lower.includes("guard") &&
@@ -32,8 +32,7 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
       const preferred = validModels.find((id: string) => 
         id.includes("llama-3.3-70b") ||
         id.includes("llama-3.1-70b") ||
-        id.includes("llama-3.1-8b-instant") ||
-        id.includes("mixtral")
+        id.includes("llama-3.1-8b-instant")
       );
 
       if (preferred) {
@@ -48,11 +47,10 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
     }
   } catch (e) {}
 
-  cachedModel = "llama-3.1-8b-instant";
+  cachedModel = "llama-3.3-70b-versatile";
   return cachedModel;
 }
 
-// מנוע פענוח ותיקון JSON חסין לחלוטין (מטפל בחיתוכי טוקנים, פסיקים ומבנים שבורים)
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
@@ -122,15 +120,16 @@ export async function POST(req: NextRequest) {
 
     let parsedJson = null;
     let attempt = 0;
-    const MAX_ATTEMPTS = 2; // נותן למערכת הזדמנות שנייה להתאושש משגיאות מודל
+    const MAX_ATTEMPTS = 2;
     let lastError = "";
 
     while (attempt < MAX_ATTEMPTS && !parsedJson) {
       attempt++;
 
+      // בטיולים ארוכים, אנחנו דורשים ממנו לקצר כדי להבטיח שה-JSON לא ייחתך בעברית
       const lengthConstraint = attempt > 1 || days > 5 
-        ? "LONG TRIP OPTIMIZATION: Keep activity descriptions concise and brief (1 short sentence max) to prevent JSON truncation."
-        : "Provide diverse and interesting descriptions.";
+        ? "CRITICAL: Keep activity descriptions extremely brief (max 10 words) to prevent token overflow."
+        : "Provide diverse and engaging descriptions in Hebrew.";
 
       const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
 All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebrew.
@@ -139,10 +138,10 @@ User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
 "${customPlaces || "None provided"}"
 
 CRITICAL ANTI-HALLUCINATION & OPTIMIZATION RULES:
-1. GEOGRAPHIC ANCHORING: Build each day's route geographically around the user's custom places (if provided).
-2. LIMIT ACTIVITIES: Generate exactly 3 to 5 activities per day. Do not generate endless lists.
-3. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining in the area (e.g., "מסעדת טאפאס מקומית ברובע הגותי", "בית קפה אותנטי ליד המוזיאון").
-4. STRICT REALITY CHECK: DO NOT INVENT PLACES. Every attraction, casino, or extreme sport spot MUST be a real, legally operating, and verifiable physical location. 
+1. GEOGRAPHIC ANCHORING: Build each day's route geographically around the user's custom places.
+2. LIMIT ACTIVITIES: Generate exactly 3 to 4 activities per day maximum.
+3. NO SPECIFIC RESTAURANT NAMES: To save tokens, DO NOT provide specific restaurant names. Suggest a *type* of dining (e.g., "מסעדה פריזאית מקומית", "בית קפה ברובע").
+4. STRICT REALITY CHECK: DO NOT INVENT PLACES. Every attraction MUST be real. 
 5. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values.
 
 Required JSON Structure:
@@ -150,7 +149,7 @@ Required JSON Structure:
   "tripTitle": "...",
   "destination": "...",
   "summary": "...",
-  "hotelRecommendation": "המלצה מפורטת על האזור או השכונה המומלצת ביותר במרכז העיר בהתאם לסגנון (ללא שמות מלונות ספציפיים, רק אזורים ושכונות).",
+  "hotelRecommendation": "המלצה מפורטת על אזור או שכונה מומלצת",
   "days": [
     {
       "day": 1,
@@ -171,11 +170,7 @@ Required JSON Structure:
 
 Rules:
 - Generate ALL requested days (Day 1 through Day ${days}) fully without skipping.
-- Sports: Max 1 event, only if a real professional match occurs on the exact dates starting ${startDate || "today"}.
-- Casino: Max 1 time in the whole trip.
-- Nightlife: Minimal and balanced, not every night.
-- 'hotelRecommendation' MUST recommend areas or neighborhoods in the city center, DO NOT recommend specific hotel names.
-- High diversity, no repetition between days. Write in natural, engaging Hebrew.
+- High diversity, no repetition between days. Write in natural Hebrew.
 - ${lengthConstraint}`;
 
       const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || destination}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel Style: ${travelStyle}`;
@@ -189,14 +184,13 @@ Rules:
           },
           body: JSON.stringify({
             model: modelName,
-            response_format: { type: "json_object" },
+            // הוסר אילוץ ה-json_object כדי למנוע קריסות שרת בטקסטים ארוכים בעברית
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
             ],
-            temperature: 0.7, // טמפרטורה בריאה שמונעת חזרתיות ולולאות
-            top_p: 0.9,
-            max_tokens: 4096
+            temperature: 0.6,
+            max_tokens: 8192 // הוכפל כדי לתמוך בטיולים ארוכים של מעל 5 ימים
           }),
         });
 
@@ -213,7 +207,6 @@ Rules:
         if (rawText) {
           parsedJson = robustJsonParse(rawText);
           
-          // ניקוי כרטיסיות ריקות במקרה שהמודל המציא פריטים ללא שם
           if (parsedJson && parsedJson.days) {
             parsedJson.days = parsedJson.days.map((day: any) => {
               if (day.activities) {
@@ -228,9 +221,29 @@ Rules:
       }
     }
 
+    // רשת ביטחון אלגנטית - במקום להקריס את האתר, מציג מסלול בסיסי ליעד המבוקש
     if (!parsedJson) {
       console.error("All attempts failed. Last error:", lastError);
-      return NextResponse.json({ error: "המערכת חוותה עומס מול שרתי ה-AI. אנא נסה שוב בעוד מספר שניות." }, { status: 500 });
+      parsedJson = {
+        tripTitle: `מסלול ל${destination}`,
+        destination: destination,
+        summary: `מסלול זה נוצר בתבנית בסיסית בעקבות עומס זמני על השרתים. כדי לקבל את המסלול המלא, אנא נסה לרענן את העמוד בעוד מספר דקות.`,
+        hotelRecommendation: `אזור מרכז העיר או הרובע ההיסטורי ב${destination} מומלצים ללינה כדי להיות קרובים לאטרקציות המרכזיות.`,
+        days: Array.from({ length: Number(days) || 3 }, (_, i) => ({
+          day: i + 1,
+          title: `יום ${i + 1} - חוקרים את ${destination}`,
+          activities: [
+            {
+              time: "10:00",
+              name: `סיור בוקר ב${destination}`,
+              description: "תחילת היום באטרקציות המרכזיות של האזור.",
+              category: "תרבות",
+              lat: 0,
+              lng: 0
+            }
+          ]
+        }))
+      };
     }
 
     return NextResponse.json(parsedJson, { status: 200 });
