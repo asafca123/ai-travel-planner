@@ -14,7 +14,6 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
       const data = await res.json();
       const models = (data.data || []).map((m: any) => m.id);
       
-      // סינון מדויק שמונע גישה למודלי אודיו, גארד או מודלים שאינם נתמכים במפתח
       const validModels = models.filter((id: string) => {
         const lower = id.toLowerCase();
         return !lower.includes("guard") &&
@@ -49,7 +48,6 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   return cachedModel;
 }
 
-// מנוע פענוח ותיקון JSON חסין לחלוטין (מטפל בחיתוכי טוקנים, פסיקים ומבנים שבורים)
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
@@ -104,7 +102,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const { destination, startPoint, startDate, days, travelStyle, language = "he" } = body;
+    // הוספנו את customPlaces לחילוץ הנתונים מהבקשה
+    const { destination, startPoint, startDate, days, travelStyle, customPlaces, language = "he" } = body;
 
     if (!destination || !days || !travelStyle) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -123,6 +122,17 @@ export async function POST(req: NextRequest) {
 
     const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
 All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebrew.
+
+User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
+"${customPlaces || "None provided"}"
+
+CRITICAL ANTI-HALLUCINATION & PRIORITIZATION RULES:
+1. GEOGRAPHIC ANCHORING: If the user provided custom places, treat them as absolute priority core anchors. Build each day's route geographically around them.
+2. PROXIMITY-BASED DINING: Select restaurants and cafes that are geographically close to the day's main activities. Do not make the user cross the city for a meal.
+3. STRICT REALITY CHECK: DO NOT INVENT PLACES. Every restaurant, attraction, casino, or extreme sport spot MUST be a real, legally operating, and verifiable physical location in the destination.
+4. CASINO: Only include a casino if a real, legal one exists there. If not, omit it entirely.
+5. EXTREME SPORTS: If selected, include real, established locations for activities like surfing, kitesurfing, or rock climbing. DO NOT invent names of beaches or mountains.
+6. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values corresponding to the real-world location. Do not guess coordinates.
 
 Required JSON Structure:
 {
@@ -150,7 +160,6 @@ Required JSON Structure:
 
 Rules:
 - Generate ALL requested days (Day 1 through Day ${days}) fully without skipping.
-- Ensure strict real-world latitude (lat) and longitude (lng) coordinates.
 - Sports: Max 1 event, only if a real professional match occurs on the exact dates starting ${startDate || "today"}.
 - Casino: Max 1 time in the whole trip.
 - Nightlife: Minimal and balanced, not every night.
@@ -172,7 +181,7 @@ Rules:
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        temperature: 0.6,
+        temperature: 0.4, // הורדתי מעט את הטמפרטורה כדי למנוע יצירתיות יתר והמצאת נתונים
         max_tokens: 4096
       }),
     });
@@ -203,7 +212,6 @@ Rules:
     } catch (parseErr: any) {
       console.error("JSON Parsing Error, using safe fallback:", parseErr.message);
       
-      // מנגנון גיבוי אוטומטי מלא למקרה קיצוני – מבטיח שהאפליקציה לעולם לא תקרוס
       parsedJson = {
         tripTitle: `מסע מדהים אל ${destination}`,
         destination: destination,
