@@ -126,13 +126,12 @@ export async function POST(req: NextRequest) {
     while (attempt < MAX_ATTEMPTS && !parsedJson) {
       attempt++;
 
-      // בטיולים ארוכים, אנחנו דורשים ממנו לקצר כדי להבטיח שה-JSON לא ייחתך בעברית
+      // בטיולים ארוכים, אנחנו דורשים ממנו לקצר מעט כדי להבטיח שה-JSON לא ייחתך בעברית
       const lengthConstraint = attempt > 1 || days > 5 
         ? "CRITICAL: Keep activity descriptions extremely brief (max 10 words) to prevent token overflow."
         : "Provide diverse and engaging descriptions in Hebrew.";
 
       const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
-All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebrew.
 
 User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
 "${customPlaces || "None provided"}"
@@ -140,16 +139,20 @@ User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
 CRITICAL ANTI-HALLUCINATION & OPTIMIZATION RULES:
 1. GEOGRAPHIC ANCHORING: Build each day's route geographically around the user's custom places.
 2. LIMIT ACTIVITIES: Generate exactly 3 to 4 activities per day maximum.
-3. NO SPECIFIC RESTAURANT NAMES: To save tokens, DO NOT provide specific restaurant names. Suggest a *type* of dining (e.g., "מסעדה פריזאית מקומית", "בית קפה ברובע").
-4. STRICT REALITY CHECK: DO NOT INVENT PLACES. Every attraction MUST be real. 
-5. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values.
+3. NO SPECIFIC RESTAURANT NAMES: To save tokens, DO NOT provide specific restaurant names. Suggest a *type* of dining (e.g., "מסעדה מקומית מומלצת", "בית קפה ברובע").
+4. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values.
+
+CRITICAL RULES FOR HEBREW & TICKETS:
+5. NATIVE HEBREW: You MUST write in natural, modern, and fluent Israeli Hebrew. DO NOT use robotic or literal translations. 
+6. NAMING CONVENTIONS: Use accepted Hebrew names for famous landmarks (e.g., 'מגדל אייפל', not 'אייפל טאוור'). If a place doesn't have a known Hebrew name, leave it in English or the local language.
+7. TICKETS: For attractions, museums, or events, provide an official website or a search link to buy tickets in the 'ticketLink' field. If not applicable (e.g., a park, walking around, or restaurant), return an empty string "".
 
 Required JSON Structure:
 {
   "tripTitle": "...",
   "destination": "...",
   "summary": "...",
-  "hotelRecommendation": "המלצה מפורטת על אזור או שכונה מומלצת",
+  "hotelRecommendation": "המלצה מפורטת על אזור או שכונה מומלצת בהתאם לסגנון (ללא שמות מלונות)",
   "days": [
     {
       "day": 1,
@@ -161,7 +164,8 @@ Required JSON Structure:
           "description": "...",
           "category": "...",
           "lat": 31.0,
-          "lng": 34.8
+          "lng": 34.8,
+          "ticketLink": "https://..."
         }
       ]
     }
@@ -184,13 +188,13 @@ Rules:
           },
           body: JSON.stringify({
             model: modelName,
-            // הוסר אילוץ ה-json_object כדי למנוע קריסות שרת בטקסטים ארוכים בעברית
+            // הוסר אילוץ ה-json_object כדי למנוע קריסות שרת בטקסטים ארוכים בעברית (חיתוך טוקנים)
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
             ],
             temperature: 0.6,
-            max_tokens: 8192 // הוכפל כדי לתמוך בטיולים ארוכים של מעל 5 ימים
+            max_tokens: 8192 // הוכפל כדי לתמוך בטיולים ארוכים
           }),
         });
 
@@ -221,7 +225,7 @@ Rules:
       }
     }
 
-    // רשת ביטחון אלגנטית - במקום להקריס את האתר, מציג מסלול בסיסי ליעד המבוקש
+    // רשת הביטחון הסופית המקורית - למקרה חירום קיצוני
     if (!parsedJson) {
       console.error("All attempts failed. Last error:", lastError);
       parsedJson = {
@@ -239,7 +243,8 @@ Rules:
               description: "תחילת היום באטרקציות המרכזיות של האזור.",
               category: "תרבות",
               lat: 0,
-              lng: 0
+              lng: 0,
+              ticketLink: ""
             }
           ]
         }))
