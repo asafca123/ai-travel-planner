@@ -52,7 +52,7 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   return cachedModel;
 }
 
-// מנוע פענוח ותיקון JSON חסין לחלוטין
+// מנוע פענוח ותיקון JSON חסין לחלוטין (מטפל בחיתוכי טוקנים, פסיקים ומבנים שבורים)
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
@@ -129,8 +129,8 @@ export async function POST(req: NextRequest) {
       attempt++;
 
       const lengthConstraint = attempt > 1 || days > 5 
-        ? "Keep activity descriptions concise but informative (1-2 sentences). Do not use 1-word descriptions."
-        : "Provide rich, engaging, and detailed descriptions (2-3 sentences) explaining why this place is special.";
+        ? "LONG TRIP OPTIMIZATION: Keep activity descriptions concise and brief (1 short sentence max) to prevent JSON truncation."
+        : "Provide diverse and interesting descriptions.";
 
       const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
 All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebrew.
@@ -139,19 +139,21 @@ User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
 "${customPlaces || "None provided"}"
 
 CRITICAL ANTI-HALLUCINATION, OPTIMIZATION & LOGISTICS RULES:
-1. GEOGRAPHIC ANCHORING & COMMUTE LIMITS: Build each day's route geographically around the user's custom places. All activities MUST be inside the main destination city or within a short, realistic commute (max 1 hour). DO NOT suggest traveling to distant cities (e.g., Paris to Lyon for a day is forbidden).
+1. GEOGRAPHIC ANCHORING & COMMUTE LIMITS: Build each day's route geographically around the user's custom places. All activities MUST be inside the main destination city or within a short, realistic commute (max 1 hour). DO NOT suggest traveling to distant cities.
 2. MUST-SEE ATTRACTIONS: Even if specific travel styles are selected, you MUST include the absolute most iconic landmarks of the destination (e.g., Eiffel Tower, Louvre, Palace of Versailles in Paris), unless the user's custom places fill the entire schedule.
 3. LIMIT ACTIVITIES: Generate exactly 3 to 5 activities per day. Do not generate endless lists.
 4. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining in the area (e.g., "מסעדת טאפאס מקומית ברובע הגותי").
-5. STRICT REALITY CHECK: DO NOT INVENT PLACES. Every attraction MUST be a real, legally operating physical location. 
+5. STRICT REALITY CHECK: DO NOT INVENT PLACES. Every attraction MUST be a real, legally operating physical location.
 6. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values.
 
-CRITICAL RULES FOR SPORTS, CONCERTS & TICKETS:
-7. SPORTS AS A SPECTATOR ONLY: If 'sports' is selected, DO NOT suggest stadium tours during the day. You MUST schedule EXACTLY ONE real professional match (e.g., PSG football, NFL, Tennis) at a logical time (e.g., 18:00, 20:00), and fill the rest of that day with NORMAL sightseeing and dining. 
+CRITICAL RULES FOR BILINGUAL NAMES, TICKETS & BOOKING.COM:
+7. BILINGUAL NAMES: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. Example: "מגדל אייפל (Eiffel Tower)", "אצטדיון וומבלי (Wembley Stadium)".
 8. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
-9. CONCERTS: If 'concerts' style is selected, suggest massive, real-world concerts happening around the travel dates. Provide a link to Ticketmaster or the official ticketing site in 'ticketLink'.
-10. BILINGUAL NAMES & DESCRIPTIONS: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. Example: "מגדל אייפל (Eiffel Tower)". The 'description' MUST be rich and descriptive, never just 2 words.
-11. TICKETS: For attractions, museums, sports, or concerts, provide an official search link to buy tickets in the 'ticketLink' field. If not applicable, return "".
+
+CRITICAL EVENT RULE (SPORTS & CONCERTS):
+9. ZERO HALLUCINATION FOR EVENTS: If the user selected 'sports' or 'concerts', you MUST NOT guess or invent matches/shows. ONLY suggest a specific professional match (e.g., PSG football, NFL) or a real world-class concert IF AND ONLY IF you have 100% factual, proven knowledge that it is scheduled on these exact dates in ${destination}. 
+IF YOU ARE NOT 100% SURE: Completely IGNORE the sports/concerts request. DO NOT suggest "checking local listings", DO NOT suggest empty stadium tours, and DO NOT suggest random sports bars. If there is no proven event, replace it with a regular high-quality sightseeing, cultural, or nightlife activity.
+10. TICKETS: For proven events or museums, provide an official website or search link to buy tickets in 'ticketLink'. If not applicable, return an empty string "".
 
 Required JSON Structure:
 {
@@ -168,7 +170,7 @@ Required JSON Structure:
         {
           "time": "09:00",
           "name": "Hebrew Name (English Name)",
-          "description": "Rich description here...",
+          "description": "...",
           "category": "...",
           "lat": 31.0,
           "lng": 34.8,
@@ -234,6 +236,7 @@ Rules:
     if (!parsedJson) {
       console.error("All attempts failed. Last error:", lastError);
       
+      // מנגנון גיבוי אוטומטי מלא למקרה קיצוני – מבטיח שהאפליקציה לעולם לא תקרוס
       parsedJson = {
         tripTitle: `מסע מדהים אל ${destination}`,
         destination: destination,
@@ -247,7 +250,7 @@ Rules:
             {
               time: "09:00",
               name: "סיור בוקר במרכז העיר (City Center Morning Tour)",
-              description: "התחלת היום בסיור רגלי מרתק באתרי המרכז ההיסטורי והתרבותי, ספיגת האווירה המקומית והיכרות עם האדריכלות הייחודית של העיר.",
+              description: "התחלת היום בסיור רגלי באתרי המרכז ההיסטורי והתרבותי.",
               category: "תרבות",
               lat: 51.5074,
               lng: -0.1278,
@@ -256,7 +259,7 @@ Rules:
             {
               time: "13:00",
               name: "ארוחת צהריים בסגנון מקומי (Local Lunch Spot)",
-              description: "הפסקה לארוחה אותנטית במסעדה מומלצת באזור הבילויים. הזדמנות מעולה לטעום מהמטבח המקומי.",
+              description: "הפסקה לארוחה במסעדה מומלצת באזור הבילויים.",
               category: "קולינריה",
               lat: 51.5084,
               lng: -0.1268,
@@ -265,7 +268,7 @@ Rules:
             {
               time: "17:00",
               name: "שוטטות ובילוי ערב (Evening Stroll)",
-              description: "התרגעות בסוף היום, ספיגת האווירה המקומית ובילוי בערב באזורים התוססים של מרכז העיר.",
+              description: "התרגעות, ספיגת האווירה המקומית ובילוי בערב באזורים התוססים.",
               category: "פנאי",
               lat: 51.5094,
               lng: -0.1258,

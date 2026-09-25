@@ -595,6 +595,7 @@ export default function Home() {
                                         {actTime ? `${actTime} - ` : ''}{actName}
                                       </span>
                                       <div className="flex flex-wrap items-center gap-2">
+                                        {/* כפתור הניווט החדש שמבוסס על חיפוש השם בגוגל מפס */}
                                         <a 
                                           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(actName + ' ' + (itinerary.destination || ''))}`} 
                                           target="_blank" 
@@ -606,8 +607,9 @@ export default function Home() {
                                           📍 {language === 'he' ? 'נווט למקום' : 'Navigate'}
                                         </a>
 
+                                        {/* כפתור כרטיסים */}
                                         {act.ticketLink && act.ticketLink.trim() !== "" && (
-                                          <a href={act.ticketLink} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-xs px-3 py-1 bg-sky-600 text-white rounded-full font-bold border border-sky-500 hover:bg-sky-500 transition-colors">
+                                          <a href={act.ticketLink} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-xs px-3 py-1 bg-sky-600 text-white rounded-full font-bold hover:bg-sky-500 transition-colors">
                                             🎟️ כרטיסים
                                           </a>
                                         )}
