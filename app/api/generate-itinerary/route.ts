@@ -138,18 +138,19 @@ All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebr
 User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
 "${customPlaces || "None provided"}"
 
-CRITICAL ANTI-HALLUCINATION & OPTIMIZATION RULES:
-1. GEOGRAPHIC ANCHORING: Build each day's route geographically around the user's custom places (if provided).
-2. LIMIT ACTIVITIES: Generate exactly 3 to 5 activities per day. Do not generate endless lists.
-3. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining in the area (e.g., "מסעדת טאפאס מקומית ברובע הגותי", "בית קפה אותנטי ליד המוזיאון").
-4. STRICT REALITY CHECK: DO NOT INVENT PLACES. Every attraction, casino, or extreme sport spot MUST be a real, legally operating, and verifiable physical location.
-5. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values.
+CRITICAL ANTI-HALLUCINATION, OPTIMIZATION & LOGISTICS RULES:
+1. GEOGRAPHIC ANCHORING & COMMUTE LIMITS: Build each day's route geographically around the user's custom places. All activities MUST be inside the main destination city or within a short, realistic commute (max 1 hour). DO NOT suggest traveling to distant cities (e.g., Paris to Lyon for a day is forbidden).
+2. MUST-SEE ATTRACTIONS: Even if specific travel styles are selected, you MUST include the absolute most iconic landmarks of the destination (e.g., Eiffel Tower, Louvre, Palace of Versailles in Paris), unless the user's custom places fill the entire schedule.
+3. LIMIT ACTIVITIES: Generate exactly 3 to 5 activities per day. Do not generate endless lists.
+4. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining in the area (e.g., "מסעדת טאפאס מקומית ברובע הגותי").
+5. STRICT REALITY CHECK & SPORTS AS SPECTATOR: DO NOT INVENT PLACES. Every attraction MUST be a real, legally operating physical location. If 'sports' is selected, ONLY suggest attending professional matches as a spectator (e.g., PSG football, NFL, major Tennis tournaments) - DO NOT suggest playing sports or renting courts.
+6. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values.
 
 CRITICAL RULES FOR BILINGUAL NAMES, TICKETS & BOOKING.COM:
-6. BILINGUAL NAMES: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. Example: "מגדל אייפל (Eiffel Tower)", "אצטדיון וומבלי (Wembley Stadium)".
-7. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
-8. SPORTS & CONCERTS: If 'sports' or 'concerts' styles are selected, explicitly include top-tier local sports (NFL, Premier League, NBA, Rugby, Tennis) or world-class concerts happening around the travel dates (e.g., Stevie Wonder in Paris). Provide a link to Ticketmaster or the official ticketing site in 'ticketLink'.
-9. TICKETS: For attractions, museums, or events, provide an official website or a search link to buy tickets in the 'ticketLink' field. If not applicable, return an empty string "".
+7. BILINGUAL NAMES: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. Example: "מגדל אייפל (Eiffel Tower)", "אצטדיון וומבלי (Wembley Stadium)".
+8. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
+9. SPORTS & CONCERTS: If 'sports' or 'concerts' styles are selected, explicitly include top-tier local sports (NFL, Premier League, NBA, Rugby, Tennis) or world-class concerts happening around the travel dates (e.g., Stevie Wonder in Paris). Provide a link to Ticketmaster or the official ticketing site in 'ticketLink'.
+10. TICKETS: For attractions, museums, or events, provide an official website or a search link to buy tickets in the 'ticketLink' field. If not applicable, return an empty string "".
 
 Required JSON Structure:
 {
