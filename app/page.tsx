@@ -14,6 +14,7 @@ const STYLE_OPTIONS = [
   { id: 'luxury', label: 'יוקרתי ✨' },
   { id: 'budget', label: 'חסכוני 🪙' },
   { id: 'sports', label: 'ספורט (משחקים ומירוצים) ⚽' },
+  { id: 'concerts', label: 'הופעות ומוזיקה חיה 🎸' },
   { id: 'leisure', label: 'פנאי (אופרה, סדנאות והצגות) 🎭' },
   { id: 'casino', label: 'קזינו 🎰' },
   { id: 'nightlife', label: 'חיי לילה 🍸' },
@@ -146,6 +147,7 @@ export default function Home() {
     setItinerary(updatedItinerary);
   };
 
+  // מנוע חיפוש קואורדינטות (Geocoding) חינמי שעובד מאחורי הקלעים
   const handleAutoGeocode = async (dayIdx: number, actIdx: number, placeName: string) => {
     if (!placeName || placeName.trim() === '') {
       alert(language === 'he' ? 'אנא הזן את שם המקום לפני החיפוש.' : 'Please enter a place name first.');
@@ -153,12 +155,13 @@ export default function Home() {
     }
 
     try {
+      // מחפש את המקום (רצוי לצרף את שם העיר כדי לדייק)
       const searchQuery = `${placeName} ${itinerary?.destination || destination}`;
       const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1`);
       const data = await res.json();
 
       if (data && data.length > 0) {
-        const { lat, lon } = data[0];
+        const { lat, lon } = data[0]; // Nominatim מחזיר lon ולא lng
         const updatedItinerary = { ...itinerary };
         updatedItinerary.days[dayIdx].activities[actIdx].lat = parseFloat(lat).toFixed(6);
         updatedItinerary.days[dayIdx].activities[actIdx].lng = parseFloat(lon).toFixed(6);
@@ -265,11 +268,12 @@ export default function Home() {
               iconAnchor: [17, 17]
             });
 
+            // פופ-אפ עם כפתור לכרטיסים (אם יש) וכפתור ניווט שמבוסס על חיפוש השם ולא נ.צ.
             const ticketBtn = act.ticketLink && act.ticketLink.trim() !== ""
-              ? `<a href="${act.ticketLink}" target="_blank" style="display:inline-block; margin-top:8px; padding:6px 12px; background:#0ea5e9; color:white; text-decoration:none; border-radius:6px; font-weight:bold; font-size:13px;">🎟️ כרטיסים ומידע</a>` 
+              ? `<a href="${act.ticketLink}" target="_blank" style="display:inline-block; margin-top:8px; padding:6px 12px; background:#0ea5e9; color:white; text-decoration:none; border-radius:6px; font-weight:bold; font-size:13px;">🎟️ כרטיסים</a>` 
               : '';
 
-            const mapsBtn = `<a href="https://www.google.com/maps/search/?api=1&query=${lat},${lng}" target="_blank" style="display:inline-block; margin-top:8px; margin-right:8px; padding:6px 12px; background:${dayColor}; color:white; text-decoration:none; border-radius:6px; font-weight:bold; font-size:13px;">📍 ניווט</a>`;
+            const mapsBtn = `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + ' ' + (itinerary.destination || ''))}" target="_blank" style="display:inline-block; margin-top:8px; margin-right:8px; padding:6px 12px; background:${dayColor}; color:white; text-decoration:none; border-radius:6px; font-weight:bold; font-size:13px;">📍 ניווט במפה</a>`;
 
             const popupContent = `
               <div style="direction: rtl; text-align: right; font-family: system-ui, sans-serif; min-width: 200px;">
@@ -473,15 +477,21 @@ export default function Home() {
                 {itinerary.summary || itinerary.overview || ''}
               </p>
 
-              {/* תיקון קופסת הלינה למובייל: רקע אטום וכהה יותר, טקסט לבן בוהק */}
+              {/* קופסת ההמלצה ללינה עם לינק לבוקינג - מותאם למובייל עם רקע כהה */}
               {itinerary.hotelRecommendation && (
                 <div className="bg-slate-800/90 border border-sky-500/50 rounded-2xl p-6 mb-8 shadow-xl">
                   <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
                     🏨 {language === 'he' ? 'המלצת לינה במרכז העיר' : 'Accommodation Recommendation'}
                   </h3>
-                  <p className="text-white leading-relaxed text-base font-medium" dir="auto">
+                  <p className="text-white leading-relaxed text-base font-medium mb-4" dir="auto">
                     {itinerary.hotelRecommendation}
                   </p>
+                  
+                  {itinerary.bookingLink && (
+                    <a href={itinerary.bookingLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#003580] text-white font-bold rounded-xl hover:bg-[#00224f] transition-colors shadow-md">
+                      🧳 חפש לינה ב-Booking.com
+                    </a>
+                  )}
                 </div>
               )}
 
@@ -530,7 +540,7 @@ export default function Home() {
                                   />
                                   <input 
                                     type="text" value={actName} onChange={e => handleActivityChange(index, actIdx, 'name', e.target.value)} 
-                                    className="flex-1 bg-white/5 text-white text-sm p-2.5 rounded-lg border border-white/20 focus:outline-none focus:border-sky-400 min-w-[150px]" placeholder="שם הפעילות למשל: מגדל אייפל" 
+                                    className="flex-1 bg-white/5 text-white text-sm p-2.5 rounded-lg border border-white/20 focus:outline-none focus:border-sky-400 min-w-[150px]" placeholder="שם הפעילות (עברית ואנגלית)" 
                                   />
                                   <button onClick={() => handleRemoveActivity(index, actIdx)} className="px-4 py-2 bg-red-500/20 text-red-300 font-bold rounded-lg hover:bg-red-500/40 border border-red-500/30 transition-colors">
                                     מחק
@@ -575,28 +585,25 @@ export default function Home() {
                                     {actTime ? `${actTime} - ` : ''}{actName}
                                   </span>
                                   <div className="flex flex-wrap items-center gap-2">
-                                    {/* כפתור ניווט לאטרקציה ספציפית בגוגל מפס */}
-                                    {!isNaN(actLat) && !isNaN(actLng) && actLat !== 0 && actLng !== 0 && (
-                                      <a 
-                                        href={`https://www.google.com/maps/search/?api=1&query=${actLat},${actLng}`} 
-                                        target="_blank" 
-                                        rel="noreferrer" 
-                                        onClick={e => e.stopPropagation()} 
-                                        className="text-xs px-3 py-1 text-white rounded-full font-bold shadow-sm hover:opacity-80 transition-all flex items-center gap-1" 
-                                        style={{ backgroundColor: dayColor }}
-                                      >
-                                        📍 {language === 'he' ? 'נווט לכאן' : 'Navigate'}
-                                      </a>
-                                    )}
+                                    {/* כפתור הניווט החדש שמבוסס על חיפוש השם בגוגל מפס */}
+                                    <a 
+                                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(actName + ' ' + (itinerary.destination || ''))}`} 
+                                      target="_blank" 
+                                      rel="noreferrer" 
+                                      onClick={e => e.stopPropagation()} 
+                                      className="text-xs px-3 py-1 text-white rounded-full font-bold shadow-sm hover:opacity-80 transition-all flex items-center gap-1" 
+                                      style={{ backgroundColor: dayColor }}
+                                    >
+                                      📍 {language === 'he' ? 'נווט למקום' : 'Navigate'}
+                                    </a>
 
-                                    {/* כפתור כרטיסים */}
+                                    {/* כפתור כרטיסים (רק אם קיים לינק) */}
                                     {act.ticketLink && act.ticketLink.trim() !== "" && (
                                       <a href={act.ticketLink} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-xs px-3 py-1 bg-sky-500/20 text-sky-100 rounded-full font-bold border border-sky-400/30 hover:bg-sky-500/40 transition-colors">
                                         🎟️ כרטיסים
                                       </a>
                                     )}
 
-                                    {/* קטגוריה */}
                                     {actCategory && (
                                       <span className="text-xs px-3 py-1 bg-slate-800/80 text-sky-200 rounded-full font-medium border border-white/10">
                                         {actCategory}

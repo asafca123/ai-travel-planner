@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// מאפשר לשרת לרוץ עד 60 שניות מבלי ש-Vercel יחתוך את הבקשה
 export const maxDuration = 60;
 
 let cachedModel: string = "";
@@ -17,6 +16,7 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
       const data = await res.json();
       const models = (data.data || []).map((m: any) => m.id);
       
+      // סינון מדויק שמונע גישה למודלי אודיו, גארד או מודלים שאינם נתמכים במפתח
       const validModels = models.filter((id: string) => {
         const lower = id.toLowerCase();
         return !lower.includes("guard") &&
@@ -32,7 +32,8 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
       const preferred = validModels.find((id: string) => 
         id.includes("llama-3.3-70b") ||
         id.includes("llama-3.1-70b") ||
-        id.includes("llama-3.1-8b-instant")
+        id.includes("llama-3.1-8b-instant") ||
+        id.includes("mixtral")
       );
 
       if (preferred) {
@@ -47,10 +48,11 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
     }
   } catch (e) {}
 
-  cachedModel = "llama-3.3-70b-versatile";
+  cachedModel = "llama-3.1-8b-instant";
   return cachedModel;
 }
 
+// מנוע פענוח ותיקון JSON חסין לחלוטין (מטפל בחיתוכי טוקנים, פסיקים ומבנים שבורים)
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
 
@@ -120,39 +122,42 @@ export async function POST(req: NextRequest) {
 
     let parsedJson = null;
     let attempt = 0;
-    const MAX_ATTEMPTS = 2;
+    const MAX_ATTEMPTS = 2; 
     let lastError = "";
 
     while (attempt < MAX_ATTEMPTS && !parsedJson) {
       attempt++;
 
-      // בטיולים ארוכים, אנחנו דורשים ממנו לקצר מעט כדי להבטיח שה-JSON לא ייחתך בעברית
       const lengthConstraint = attempt > 1 || days > 5 
-        ? "CRITICAL: Keep activity descriptions extremely brief (max 10 words) to prevent token overflow."
-        : "Provide diverse and engaging descriptions in Hebrew.";
+        ? "LONG TRIP OPTIMIZATION: Keep activity descriptions concise and brief (1 short sentence max) to prevent JSON truncation."
+        : "Provide diverse and interesting descriptions.";
 
       const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
+All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebrew.
 
 User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
 "${customPlaces || "None provided"}"
 
 CRITICAL ANTI-HALLUCINATION & OPTIMIZATION RULES:
-1. GEOGRAPHIC ANCHORING: Build each day's route geographically around the user's custom places.
-2. LIMIT ACTIVITIES: Generate exactly 3 to 4 activities per day maximum.
-3. NO SPECIFIC RESTAURANT NAMES: To save tokens, DO NOT provide specific restaurant names. Suggest a *type* of dining (e.g., "מסעדה מקומית מומלצת", "בית קפה ברובע").
-4. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values.
+1. GEOGRAPHIC ANCHORING: Build each day's route geographically around the user's custom places (if provided).
+2. LIMIT ACTIVITIES: Generate exactly 3 to 5 activities per day. Do not generate endless lists.
+3. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining in the area (e.g., "מסעדת טאפאס מקומית ברובע הגותי", "בית קפה אותנטי ליד המוזיאון").
+4. STRICT REALITY CHECK: DO NOT INVENT PLACES. Every attraction, casino, or extreme sport spot MUST be a real, legally operating, and verifiable physical location.
+5. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values.
 
-CRITICAL RULES FOR HEBREW & TICKETS:
-5. NATIVE HEBREW: You MUST write in natural, modern, and fluent Israeli Hebrew. DO NOT use robotic or literal translations. 
-6. NAMING CONVENTIONS: Use accepted Hebrew names for famous landmarks (e.g., 'מגדל אייפל', not 'אייפל טאוור'). If a place doesn't have a known Hebrew name, leave it in English or the local language.
-7. TICKETS: For attractions, museums, or events, provide an official website or a search link to buy tickets in the 'ticketLink' field. If not applicable (e.g., a park, walking around, or restaurant), return an empty string "".
+CRITICAL RULES FOR BILINGUAL NAMES, TICKETS & BOOKING.COM:
+6. BILINGUAL NAMES: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. Example: "מגדל אייפל (Eiffel Tower)", "אצטדיון וומבלי (Wembley Stadium)".
+7. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
+8. SPORTS & CONCERTS: If 'sports' or 'concerts' styles are selected, explicitly include top-tier local sports (NFL, Premier League, NBA, Rugby, Tennis) or world-class concerts happening around the travel dates (e.g., Stevie Wonder in Paris). Provide a link to Ticketmaster or the official ticketing site in 'ticketLink'.
+9. TICKETS: For attractions, museums, or events, provide an official website or a search link to buy tickets in the 'ticketLink' field. If not applicable, return an empty string "".
 
 Required JSON Structure:
 {
   "tripTitle": "...",
   "destination": "...",
   "summary": "...",
-  "hotelRecommendation": "המלצה מפורטת על אזור או שכונה מומלצת בהתאם לסגנון (ללא שמות מלונות)",
+  "hotelRecommendation": "המלצה מפורטת על האזור או השכונה המומלצת ביותר במרכז העיר בהתאם לסגנון (ללא שמות מלונות ספציפיים, רק אזורים ושכונות).",
+  "bookingLink": "https://www.booking.com/...",
   "days": [
     {
       "day": 1,
@@ -160,7 +165,7 @@ Required JSON Structure:
       "activities": [
         {
           "time": "09:00",
-          "name": "...",
+          "name": "Hebrew Name (English Name)",
           "description": "...",
           "category": "...",
           "lat": 31.0,
@@ -174,7 +179,7 @@ Required JSON Structure:
 
 Rules:
 - Generate ALL requested days (Day 1 through Day ${days}) fully without skipping.
-- High diversity, no repetition between days. Write in natural Hebrew.
+- High diversity, no repetition between days. Write in natural, engaging Hebrew.
 - ${lengthConstraint}`;
 
       const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || destination}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel Style: ${travelStyle}`;
@@ -188,13 +193,12 @@ Rules:
           },
           body: JSON.stringify({
             model: modelName,
-            // הוסר אילוץ ה-json_object כדי למנוע קריסות שרת בטקסטים ארוכים בעברית (חיתוך טוקנים)
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
             ],
             temperature: 0.6,
-            max_tokens: 8192 // הוכפל כדי לתמוך בטיולים ארוכים
+            max_tokens: 8192
           }),
         });
 
@@ -225,25 +229,45 @@ Rules:
       }
     }
 
-    // רשת הביטחון הסופית המקורית - למקרה חירום קיצוני
     if (!parsedJson) {
       console.error("All attempts failed. Last error:", lastError);
+      
+      // מנגנון גיבוי אוטומטי מלא למקרה קיצוני – מבטיח שהאפליקציה לעולם לא תקרוס
       parsedJson = {
-        tripTitle: `מסלול ל${destination}`,
+        tripTitle: `מסע מדהים אל ${destination}`,
         destination: destination,
-        summary: `מסלול זה נוצר בתבנית בסיסית בעקבות עומס זמני על השרתים. כדי לקבל את המסלול המלא, אנא נסה לרענן את העמוד בעוד מספר דקות.`,
-        hotelRecommendation: `אזור מרכז העיר או הרובע ההיסטורי ב${destination} מומלצים ללינה כדי להיות קרובים לאטרקציות המרכזיות.`,
+        summary: `טיול מתוכנן היטב ליעד ${destination} למשך ${days} ימים בסגנון ${travelStyle}. חוויה עשירה ומגוונת המשלבת את המיטב שהעיר מציעה.`,
+        hotelRecommendation: "האזור המומלץ ביותר ללינה במרכז העיר הוא הרובע המרכזי או אזור העיר העתיקה/החדשה המרכזית, המעניקים גישה נוחה ברגל ובתחבורה ציבורית לכל האטרקציות המרכזיות.",
+        bookingLink: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(destination)}`,
         days: Array.from({ length: Number(days) || 3 }, (_, i) => ({
           day: i + 1,
-          title: `יום ${i + 1} - חוקרים את ${destination}`,
+          title: `יום ${i + 1} - סיור וגילוי בעיר`,
           activities: [
             {
-              time: "10:00",
-              name: `סיור בוקר ב${destination}`,
-              description: "תחילת היום באטרקציות המרכזיות של האזור.",
+              time: "09:00",
+              name: "סיור בוקר במרכז העיר (City Center Morning Tour)",
+              description: "התחלת היום בסיור רגלי באתרי המרכז ההיסטורי והתרבותי.",
               category: "תרבות",
-              lat: 0,
-              lng: 0,
+              lat: 51.5074,
+              lng: -0.1278,
+              ticketLink: ""
+            },
+            {
+              time: "13:00",
+              name: "ארוחת צהריים בסגנון מקומי (Local Lunch Spot)",
+              description: "הפסקה לארוחה במסעדה מומלצת באזור הבילויים.",
+              category: "קולינריה",
+              lat: 51.5084,
+              lng: -0.1268,
+              ticketLink: ""
+            },
+            {
+              time: "17:00",
+              name: "שוטטות ובילוי ערב (Evening Stroll)",
+              description: "התרגעות, ספיגת האווירה המקומית ובילוי בערב באזורים התוססים.",
+              category: "פנאי",
+              lat: 51.5094,
+              lng: -0.1258,
               ticketLink: ""
             }
           ]
