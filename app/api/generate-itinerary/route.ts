@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// בחינם (Hobby) Vercel חותך את הפונקציה אחרי 10 שניות בכל מקרה -
+// המספר כאן רלוונטי רק בחשבון בתשלום
 export const maxDuration = 60;
 
 let cachedModel: string = "";
@@ -276,6 +278,7 @@ async function geocodePlace(
 
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
     const res = await fetch(url, {
+      signal: AbortSignal.timeout(6000),
       headers: {
         // חובה לפי מדיניות השימוש של Nominatim - יש להחליף לשם האפליקציה
         // ואימייל אמיתי לפני שהאתר עולה בקנה מידה משמעותי
@@ -361,6 +364,13 @@ export async function POST(req: NextRequest) {
 
     const modelName = await getAvailableGroqModel(apiKey);
 
+    // === חדש: מודל מהיר לטיולים ארוכים (הכרחי בחינם של Vercel) ===
+    // ב-Hobby יש רק 10 שניות לפונקציה. llama-3.3-70b מייצר ~300 טוקנים/שנייה,
+    // ולכן מסלול של 5+ ימים עלול לחרוג מהזמן. llama-3.1-8b-instant פי 2-3
+    // יותר מהיר - מספיק לטיולים ארוכים, גם אם האיכות קצת נמוכה יותר.
+    const isFastModel = (Number(days) || 3) >= 5;
+    const finalModel = isFastModel ? "llama-3.1-8b-instant" : modelName;
+
     // === חדש: חיפוש קרקוע אמיתי לפי יעד + סגנון טיול ===
     // עודכן: קודם בודקים קאש (Upstash) לפי מפתח יעד+סגנון מנורמל.
     // רק אם אין תוצאה שמורה, עושים חיפוש אמיתי (Serper) ושומרים אותו
@@ -388,7 +398,9 @@ export async function POST(req: NextRequest) {
 
     let parsedJson = null;
     let attempt = 0;
-    const MAX_ATTEMPTS = 3;
+    // ב-Vercel Hobby (חינם) יש מגבלה של 10 שניות לכל פונקציה - ניסיון אחד בלבד.
+    // אם הניסיון נכשל, הלקוח מציג את כפתור "צור מסלול טיול" שולח בקשה חדשה.
+    const MAX_ATTEMPTS = 1;
     let lastError = "";
     let lastWasTruncated = false;
 
@@ -403,7 +415,9 @@ export async function POST(req: NextRequest) {
       // ומספיק גם לטיולים ארוכים, אין צורך "לחסוך" למשתמש על חשבון
       // איכות המסלול - רק לטיולים ארוכים מאוד (10+ ימים) שומרים על מתינות קלה.
       const lengthConstraint = numDays >= 10
-        ? "For very long trips (10+ days): generate 3-4 activities per day with concise but complete descriptions (1-2 sentences each) so the full trip fits within the response."
+        ? "For very long trips (10+ days): generate exactly 3 activities per day, with short 1-sentence descriptions (max ~15 words) each, so ALL days fit inside the response. Vary phrasing; never loop or repeat the same activity text."
+        : numDays >= 6
+        ? "Generate 3-4 activities per day with concise 1-2 sentence descriptions, so all days fit."
         : "Provide diverse, rich, and detailed descriptions (2-3 sentences). Generate 3-5 activities per day.";
 
       // === חדש: בלוק קרקוע עובדתי מתוצאות חיפוש אמיתיות ===
@@ -466,7 +480,10 @@ Rules:
 
       const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || destination}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel Style: ${travelStyle}`;
 
-      const attemptMaxTokens = computeMaxTokens(numDays, attempt);
+      // ל-llama-3.1-8b-instant יש תקרת פלט של 8192 טוקנים - לא מבקשים יותר כדי לא לקבל שגיאת 400
+      const attemptMaxTokens = isFastModel
+        ? Math.min(computeMaxTokens(numDays, attempt), 7800)
+        : computeMaxTokens(numDays, attempt);
 
       try {
         const apiResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -475,8 +492,10 @@ Rules:
             "Content-Type": "application/json",
             "Authorization": `Bearer ${apiKey}`,
           },
+          // הגנה מפני בקשה שנתקעת - אחרי 50 שניות מתבצע ביטול אוטומטי
+          signal: AbortSignal.timeout(50000),
           body: JSON.stringify({
-            model: modelName,
+            model: finalModel,
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
@@ -492,8 +511,18 @@ Rules:
         const responseText = await apiResponse.text();
 
         if (!apiResponse.ok) {
-          lastError = responseText;
-          continue; 
+          let errMsg = responseText;
+          try {
+            const errJson = JSON.parse(responseText);
+            errMsg = errJson?.error?.message || errMsg;
+          } catch {}
+          lastError = `Groq HTTP ${apiResponse.status}: ${errMsg}`;
+          console.error(`[attempt ${attempt}]`, lastError);
+          // אם זו rate-limit (429) או שגיאת שרת זמנית (5xx) - ממתינים לפני הניסיון הבא
+          if (apiResponse.status === 429 || apiResponse.status >= 500) {
+            await sleep(1500 * attempt);
+          }
+          continue;
         }
 
         const data = JSON.parse(responseText);
@@ -501,18 +530,39 @@ Rules:
         const finishReason = data.choices?.[0]?.finish_reason;
         lastWasTruncated = finishReason === "length";
 
-        // חדש: אם התשובה נחתכה עקב מגבלת טוקנים ועוד נשארו ניסיונות,
-        // עדיף לנסות שוב מיד עם תקציב טוקנים גדול יותר במקום לנסות
-        // לתקן JSON חלקי (זה בדיוק מה שגרם למסך השגיאה בעבר).
-        if (lastWasTruncated && attempt < MAX_ATTEMPTS) {
-          lastError = "Response truncated (finish_reason=length) — retrying with a larger token budget.";
+        if (!rawText) {
+          lastError = "Model returned empty content.";
+          console.error(`[attempt ${attempt}]`, lastError);
           continue;
         }
-        
-        if (rawText) {
+
+        // אם התשובה נחתכה (finish_reason=length), קודם מנסים לשחזר ממנה
+        // ימים שלמים חלקיים - תוכנית חלקית טובה הרבה יותר ממסך שגיאה.
+        // רק אם השחזור נכשל ועוד נשארו ניסיונות, מנסים שוב עם תקציב גדול יותר.
+        if (lastWasTruncated) {
+          try {
+            const salvaged = robustJsonParse(rawText);
+            if (salvaged && Array.isArray(salvaged.days) && salvaged.days.length > 0) {
+              parsedJson = salvaged;
+              console.warn(`[attempt ${attempt}] Response truncated but recovered ${salvaged.days.length} day(s).`);
+            }
+          } catch (salvageErr) {
+            // השחזור נכשל - ממשיכים לניסיון הבא עם תקציב גדול יותר
+          }
+        }
+
+        if (!parsedJson && lastWasTruncated && attempt < MAX_ATTEMPTS) {
+          lastError = "Response truncated (finish_reason=length) — retrying with a larger token budget.";
+          console.warn(`[attempt ${attempt}]`, lastError);
+          continue;
+        }
+
+        if (rawText && !parsedJson) {
           parsedJson = robustJsonParse(rawText);
-          
-          if (parsedJson && parsedJson.days) {
+        }
+
+        // ניקוי פעילויות ריקות - רץ גם על תוכניות משוחזרות חלקית
+        if (parsedJson && parsedJson.days) {
             parsedJson.days = parsedJson.days.map((day: any) => {
               if (day.activities) {
                 day.activities = day.activities.filter((act: any) => act.name && act.name.trim() !== "");
@@ -520,21 +570,19 @@ Rules:
               return day;
             });
           }
-        }
       } catch (err: any) {
         lastError = err.message;
       }
     }
 
-    // === עודכן: אימות כל המיקומים מול Nominatim לפני החזרת התשובה ===
-    // רץ תמיד (אין צורך במפתח API או בכרטיס אשראי) כל עוד קיבלנו מסלול תקין.
-    if (parsedJson) {
-      try {
-        await verifyAllLocations(parsedJson, destination);
-      } catch (e) {
-        console.error("Location verification step failed:", e);
-      }
-    }
+    // === הועבר לצד לקוח ===
+    // ב-Vercel Hobby (חינם) יש רק 10 שניות לפונקציה - אי אפשר להריץ כאן
+    // לולאת geocoding עם 1.1 שניות המתנה לכל מקום (12 ימים = ~40 שניות!).
+    // האימות עובר לדפדפן: geocode-client.ts רץ ברקע עם תור מצומצם
+    // (בקשה אחת לשנייה, כפי ש-Nominatim דורש בשימוש הוגן) ומעדכן את
+    // הנקודות על המפה תוך כדי שהמשתמש כבר קורא את התוכנית.
+    // הפונקציה verifyAllLocations נשמרת כאן למקרה שתעבור לשרת חינמי
+    // בלי מגבלת זמן (למשל Cloudflare Workers).
 
     if (!parsedJson) {
       console.error("All attempts failed. Last error:", lastError);
