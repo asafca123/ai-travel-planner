@@ -396,7 +396,10 @@ export async function POST(req: NextRequest) {
       if (modelsRes.ok) {
         const modelsData = await modelsRes.json();
         const availableIds: string[] = (modelsData.data || []).map((m: any) => m.id);
-        const allowedPrefixes = ["llama", "mixtral", "gemma", "qwen", "deepseek", "moonshot"];
+        // >>> שינוי קריטי: הסרנו את "qwen" מרשימת המודלים המאושרים
+        // הסיבה: למודלי Qwen יש מגבלה של 1000 טוקנים בלבד בפלט בחשבון החינמי
+        // (OTPM), בעוד llama/mixtral מקבלים 30,000 טוקנים בחינם.
+        const allowedPrefixes = ["llama", "mixtral", "gemma", "deepseek", "moonshot"];
         const safeChatModels = availableIds.filter((id: string) => {
           const lower = id.toLowerCase();
           const isKnownChat = allowedPrefixes.some(prefix => lower.includes(prefix));
