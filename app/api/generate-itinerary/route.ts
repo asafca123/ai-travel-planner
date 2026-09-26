@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// === חדש: מעבר ל-Edge Runtime של Vercel ===
-// זה מאפשר לפונקציה לרוץ עד 30 שניות בחשבון החינמי (במקום 10 שניות)
+// === שינוי 1: מעבר ל-Edge Runtime של Vercel (מאפשר 30 שניות בחינם במקום 10) ===
 export const runtime = 'edge';
 export const maxDuration = 30;
 
@@ -171,20 +170,15 @@ function robustJsonParse(text: string) {
   throw new Error("No valid JSON structure could be recovered from response");
 }
 
-// === חדש: תקציב טוקנים דינמי לפי מספר הימים ===
-// עברית צורכת בממוצע פי 2-3 טוקנים לעומת אנגלית עבור אותו תוכן, ולכל
-// פעילות יש כמה שדות (time/name/description/category/lat/lng/ticketLink),
-// אז 8192 טוקנים קבועים לא מספיקים לטיולים ארוכים. llama-3.3-70b-versatile
-// תומך עד 32,768 טוקני פלט - אז מנצלים את זה בהתאם לאורך הטיול והניסיון.
+// === שינוי 2: תקציב טוקנים בטוח ל-llama-3.1-8b-instant ===
+// המודל המהיר תומך במקסימום 8,192 טוקני פלט. ביקשנו קודם 32,000 - זה גרם לשגיאת 400 וקריסה.
 function computeMaxTokens(numDays: number, attempt: number): number {
-  const HARD_CAP = 32000;
-  const baseTokens = 3500;
-  const perDayTokens = 1500;
+  const HARD_CAP = 6000; // בטוח מתחת ל-8,192
+  const baseTokens = 1000;
+  const perDayTokens = 600; 
   let budget = baseTokens + numDays * perDayTokens;
 
-  // בכל ניסיון חוזר (במקרה של חיתוך) מגדילים את התקציב משמעותית
-  if (attempt >= 2) budget = Math.max(budget, budget * 1.6);
-  if (attempt >= 3) budget = HARD_CAP;
+  if (attempt >= 2) budget = Math.max(budget, budget * 1.3);
 
   return Math.min(HARD_CAP, Math.round(budget));
 }
@@ -365,9 +359,10 @@ export async function POST(req: NextRequest) {
 
     const modelName = await getAvailableGroqModel(apiKey);
 
-    // === שונה: שימוש במודל המהיר ביותר תמיד ===
-    // שים לב: ב-Edge יש 30 שניות. מודל 70b לוקח יותר מדי זמן והורג את הפונקציה.
-    // אנחנו מחייבים את המודל המהיר (8b) בכל בקשה כדי למנוע קריסות.
+    // === שינוי 3: מודל מהיר תמיד (הכרחי בחינם של Vercel) ===
+    // ב-Edge יש 30 שניות. llama-3.3-70b מייצר ~300 טוקנים/שנייה,
+    // ולכן מסלול של 5+ ימים עלול לחרוג מהזמן. llama-3.1-8b-instant פי 2-3
+    // יותר מהיר - מספיק לטיולים ארוכים, גם אם האיכות קצת נמוכה יותר.
     const isFastModel = true; // שונה מ-(Number(days) || 3) >= 5
     const finalModel = isFastModel ? "llama-3.1-8b-instant" : modelName;
 
@@ -492,7 +487,8 @@ Rules:
             "Content-Type": "application/json",
             "Authorization": `Bearer ${apiKey}`,
           },
-          // הגנה מפני בקשה שנתקעת - ב-Edge יש 30 שניות, מבטלים אחרי 28
+          // === שינוי 4: הגנה מפני בקשה שנתקעת - אחרי 28 שניות מתבצע ביטול אוטומטי ===
+          // (ב-Edge יש 30 שניות, אז 28 זה הזמן הבטוח)
           signal: AbortSignal.timeout(28000),
           body: JSON.stringify({
             model: finalModel,
