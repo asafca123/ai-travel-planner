@@ -384,11 +384,11 @@ export async function POST(req: NextRequest) {
 
     const modelName = await getAvailableGroqModel(apiKey);
 
-    // === חדש: מודל מהיר לטיולים ארוכים (הכרחי בחינם של Vercel) ===
-    // ב-Hobby יש רק 10 שניות לפונקציה. llama-3.3-70b מייצר ~300 טוקנים/שנייה,
-    // ולכן מסלול של 5+ ימים עלול לחרוג מהזמן. llama-3.1-8b-instant פי 2-3
-    // יותר מהיר - מספיק לטיולים ארוכים, גם אם האיכות קצת נמוכה יותר.
-    let finalModel = "llama-3.3-70b-versatile";
+    // === שינוי קריטי: בחירת מודל חכמה שלא מכפיתה מודל ספציפי ===
+    // הבעיה: כפינו בעבר "llama-3.3-70b-versatile" כברירת מחדל, אבל הוא לא
+    // קיים בכל חשבון Groq. עכשיו אנחנו בוחרים אך ורק מתוך הרשימה האמיתית
+    // שהחשבון שלך מחזיר, עם שתי שכבות סינון.
+    let finalModel = "";
     try {
       const modelsRes = await fetch("https://api.groq.com/openai/v1/models", {
         headers: { "Authorization": `Bearer ${apiKey}` }
@@ -396,9 +396,10 @@ export async function POST(req: NextRequest) {
       if (modelsRes.ok) {
         const modelsData = await modelsRes.json();
         const availableIds: string[] = (modelsData.data || []).map((m: any) => m.id);
-        // >>> שינוי קריטי: הסרנו את "qwen" מרשימת המודלים המאושרים
-        // הסיבה: למודלי Qwen יש מגבלה של 1000 טוקנים בלבד בפלט בחשבון החינמי
-        // (OTPM), בעוד llama/mixtral מקבלים 30,000 טוקנים בחינם.
+        console.log("[DEBUG] ===== כל המודלים בחשבון =====");
+        console.log(availableIds);
+        
+        // שלב 1: רשימה לבנה קפדנית - llama/mixtral/gemma/deepseek/moonshot
         const allowedPrefixes = ["llama", "mixtral", "gemma", "deepseek", "moonshot"];
         const safeChatModels = availableIds.filter((id: string) => {
           const lower = id.toLowerCase();
@@ -409,17 +410,43 @@ export async function POST(req: NextRequest) {
                               lower.includes("embed") || lower.includes("vision");
           return isKnownChat && !isForbidden;
         });
-        console.log("[DEBUG] מודלים מאושרים:", safeChatModels);
-        if (safeChatModels.length > 0) {
-          const preferred70b = safeChatModels.find((id: string) => id.includes("3.3-70b-versatile"));
-          const fastCandidate = safeChatModels.find((id: string) => 
+        
+        // שלב 2: אם הרשימה הלבנה ריקה - קח כל מודל שאינו אסור
+        const fallbackModels = availableIds.filter((id: string) => {
+          const lower = id.toLowerCase();
+          return !lower.includes("guard") && !lower.includes("whisper") && 
+                 !lower.includes("tts") && !lower.includes("orpheus") &&
+                 !lower.includes("canopy") && !lower.includes("audio") &&
+                 !lower.includes("embed") && !lower.includes("vision");
+        });
+
+        console.log("[DEBUG] מודלים מאושרים (whitelist):", safeChatModels);
+        console.log("[DEBUG] מודלים fallback:", fallbackModels);
+        
+        // עדיפות: 70b-versatile > 8b-instant > הראשון ברשימה
+        const pool = safeChatModels.length > 0 ? safeChatModels : fallbackModels;
+        
+        if (pool.length > 0) {
+          const preferred70b = pool.find((id: string) => id.includes("70b-versatile"));
+          const fastCandidate = pool.find((id: string) => 
             id.includes("8b-instant") || id.includes("8b-8192") || id.includes("gemma2-9b")
           );
-          finalModel = preferred70b || fastCandidate || safeChatModels[0];
+          finalModel = preferred70b || fastCandidate || pool[0];
         }
+        
         console.log("[DEBUG] נבחר מודל:", finalModel);
+        console.log("[DEBUG] ==================================");
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("[DEBUG] שגיאה בשליפת מודלים:", e);
+    }
+    
+    // אם לא הצלחנו לבחור בכלל - עצור עם שגיאה ברורה
+    if (!finalModel) {
+      return NextResponse.json({ 
+        error: "No valid chat model found in your Groq account. Please check your API key or add a supported model at https://console.groq.com/settings/limits" 
+      }, { status: 500 });
+    }
 
     const isFastModel = finalModel.includes("8b") || finalModel.includes("9b");
 
