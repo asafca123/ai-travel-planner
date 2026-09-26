@@ -197,7 +197,8 @@ function robustJsonParse(text: string) {
 // אז 8192 טוקנים קבועים לא מספיקים לטיולים ארוכים. llama-3.3-70b-versatile
 // תומך עד 32,768 טוקני פלט - אז מנצלים את זה בהתאם לאורך הטיול והניסיון.
 function computeMaxTokens(numDays: number, attempt: number): number {
-  const HARD_CAP = 6000;
+  // תקרה בטוחה שעובדת גם עם מודלים קטנים (gemma2-9b תומך רק ב-4096)
+  const HARD_CAP = 4000;
   const baseTokens = 1000;
   const perDayTokens = 400;
   let budget = baseTokens + numDays * perDayTokens;
@@ -384,10 +385,9 @@ export async function POST(req: NextRequest) {
 
     const modelName = await getAvailableGroqModel(apiKey);
 
-    // === שינוי: בחירת מודל חכמה שלא מכפיתה מודל ספציפי ===
-    // הבעיה: כפינו בעבר "llama-3.3-70b-versatile" כברירת מחדל, אבל הוא לא
-    // קיים בכל חשבון Groq. עכשיו אנחנו בוחרים אך ורק מתוך הרשימה האמיתית
-    // שהחשבון שלך מחזיר, עם שתי שכבות סינון.
+    // === שינוי קריטי: בחירת מודל חכמה עם עדיפות ל-70b-versatile ===
+    // הבעיה: לפעמים המודל הנבחר הוא gemma2-9b-it (מגבלה 4096 טוקנים בלבד).
+    // הפתרון: עדיפות מוחלטת ל-llama-3.3-70b-versatile שתומך ב-32,768 טוקנים.
     let finalModel = "";
     try {
       const modelsRes = await fetch("https://api.groq.com/openai/v1/models", {
@@ -423,15 +423,18 @@ export async function POST(req: NextRequest) {
         console.log("[DEBUG] מודלים מאושרים (whitelist):", safeChatModels);
         console.log("[DEBUG] מודלים fallback:", fallbackModels);
         
-        // עדיפות: 70b-versatile > 8b-instant > הראשון ברשימה
+        // === שינוי: עדיפות מוחלטת ל-70b-versatile ===
         const pool = safeChatModels.length > 0 ? safeChatModels : fallbackModels;
         
         if (pool.length > 0) {
-          const preferred70b = pool.find((id: string) => id.includes("70b-versatile"));
-          const fastCandidate = pool.find((id: string) => 
-            id.includes("8b-instant") || id.includes("8b-8192") || id.includes("gemma2-9b")
-          );
-          finalModel = preferred70b || fastCandidate || pool[0];
+          // 1. מעדיפים llama-3.3-70b-versatile (הטוב ביותר - 32K tokens)
+          const versatile = pool.find((id: string) => id.includes("3.3-70b-versatile"));
+          // 2. אחר כך כל 70b אחר
+          const any70b = pool.find((id: string) => id.includes("70b"));
+          // 3. אחר כך llama-3.1-8b-instant (8K tokens, סביר)
+          const llama8b = pool.find((id: string) => id.includes("llama-3.1-8b-instant"));
+          // 4. אחרון: הראשון שיש
+          finalModel = versatile || any70b || llama8b || pool[0];
         }
         
         console.log("[DEBUG] נבחר מודל:", finalModel);
