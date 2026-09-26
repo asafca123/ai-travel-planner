@@ -8,6 +8,25 @@ export const maxDuration = 30;
 
 let cachedModel: string = "";
 
+// === חדש: פונקציה לפרמט טווח תאריכים בצורה קריאה ל-AI ולחיפוש ===
+function formatDateRange(startDateStr: string, numDays: number): { readable: string; iso: { start: string; end: string } } {
+  try {
+    const start = new Date(startDateStr);
+    const end = new Date(start);
+    end.setDate(end.getDate() + (numDays - 1));
+    const fmt = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+    return {
+      readable: `${fmt(start)} to ${fmt(end)}`,
+      iso: {
+        start: start.toISOString().split("T")[0],
+        end: end.toISOString().split("T")[0]
+      }
+    };
+  } catch {
+    return { readable: startDateStr || "unknown dates", iso: { start: "", end: "" } };
+  }
+}
+
 async function getAvailableGroqModel(apiKey: string): Promise<string> {
   if (cachedModel !== "") return cachedModel;
 
@@ -401,6 +420,13 @@ export async function POST(req: NextRequest) {
 
     const isFastModel = finalModel.includes("8b") || finalModel.includes("9b");
 
+    // === חדש: חישוב טווח התאריכים המדויק של הטיול ===
+    // זה נשלח גם לחיפוש האינטרנט וגם לפרומפט, כדי שה-AI ידע בדיוק
+    // מתי הטיול מתקיים ורק יציע אירועים בתוך הטווח הזה.
+    const numDaysForRange = Number(days) || 3;
+    const dateRange = formatDateRange(startDate || "", numDaysForRange);
+    console.log("[DEBUG] טווח תאריכים:", dateRange.readable, "|", dateRange.iso);
+
     // === חדש: חיפוש קרקוע אמיתי לפי יעד + סגנון טיול ===
     // עודכן: קודם בודקים קאש (Upstash) לפי מפתח יעד+סגנון מנורמל.
     // רק אם אין תוצאה שמורה, עושים חיפוש אמיתי (Serper) ושומרים אותו
@@ -411,17 +437,19 @@ export async function POST(req: NextRequest) {
     if (serperApiKey) {
       const normalizedDestination = String(destination).trim().toLowerCase();
       const normalizedStyle = String(travelStyle).trim().toLowerCase();
-      const searchCacheKey = `search-grounding:${normalizedDestination}:${normalizedStyle}`;
+      // === שינוי: הוספת טווח התאריכים למפתח הקאש, כדי שלא נקבל תוצאות של תאריכים אחרים ===
+      const searchCacheKey = `search-grounding:${normalizedDestination}:${normalizedStyle}:${dateRange.iso.start}`;
 
       const cachedContext = await cacheGet(searchCacheKey);
       if (cachedContext !== null) {
         webContext = cachedContext;
       } else {
-        // >>> ספורט: שאילתת חיפוש מותאמת לסגנון ספורטיבי
+        // === שיפור: שאילתת חיפוש ספציפית לספורט עם התאריכים המדויקים ===
         const isSportsStyle = travelStyle.toLowerCase().includes("sport") || travelStyle.toLowerCase().includes("ספורט");
         const groundingQuery = isSportsStyle
-          ? `${destination} professional sports games schedule fixtures 2026 ${startDate || ""} top league football basketball tennis local matches tickets`
+          ? `${destination} sports events games ${dateRange.readable} fixtures schedule tickets top league football basketball tennis ${dateRange.iso.start} ${dateRange.iso.end}`
           : `${destination} ${travelStyle} specific real named spots routes trails 2026 guide`;
+        console.log("[DEBUG] שאילתת חיפוש:", groundingQuery);
         webContext = await searchWebForGrounding(groundingQuery, serperApiKey);
         if (webContext) {
           // 30 יום - מסלולי טיפוס, שבילים ואתרי טבע לא משתנים בטווח הזמן הזה
@@ -463,6 +491,8 @@ export async function POST(req: NextRequest) {
       const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
 All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebrew.
 
+TRIP DATES: ${dateRange.readable} (exactly ${numDays} days from ${dateRange.iso.start} to ${dateRange.iso.end}).
+
 User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
 "${customPlaces || "None provided"}"
 ${webContextBlock}
@@ -478,16 +508,16 @@ CRITICAL ANTI-HALLUCINATION & OPTIMIZATION RULES:
 CRITICAL RULES FOR BILINGUAL NAMES, TICKETS & EVENTS:
 8. BILINGUAL NAMES & PROPER TRANSLITERATION: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. CRITICAL: DO NOT literally translate proper nouns! Transliterate them (e.g., 'Southbank Centre' should be 'מרכז סאות'בנק'). Only translate generic words like Park, Museum, Beach. This applies to specific route/crag/trail names too (e.g., a climbing sector called "Odyssey" becomes "אודיסיאה (Odyssey)", never a literal Hebrew translation of the word).
 9. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
-10. SPORTS & EVENTS — STRICT RULES (READ CAREFULLY):
-   - If 'sports' style is selected, the user wants to ATTEND REAL PROFESSIONAL GAMES, not tours.
-   - ALLOWED: Real scheduled matches in the country's TOP professional league (e.g., Premier League, La Liga, NBA, EuroLeague, ATP/WTA tennis, national team games, local derby).
-   - FORBIDDEN: Stadium tours, museum visits of sports clubs, empty stadium walks, "experience the atmosphere of the stadium", generic "watch locals play".
-   - If you KNOW a specific game happens during these dates (from the REAL-WORLD SEARCH RESULTS block above), use it with the exact team names and date.
-   - If you do NOT know a specific game, suggest going to a real sports venue/arena where PROFESSIONAL games are regularly held (e.g., "Camp Nou", "Madison Square Garden", "Wimbledon Centre Court") and specify the type of game to look for. DO NOT invent fake game dates.
-   - For tennis: suggest ATP/WTA tournaments or Grand Slam venues only.
-   - For basketball: suggest NBA, EuroLeague, or the top local league.
-   - NEVER suggest a stadium tour. If you cannot find a real game, do NOT use sports as the activity at all — pick a different real attraction instead.
-   - ZERO HALLUCINATION: Do not invent game scores, specific player names, or fake fixtures.
+10. SPORTS & EVENTS — STRICT DATE-BOUND RULES (READ VERY CAREFULLY):
+   - The trip is from ${dateRange.iso.start} to ${dateRange.iso.end} (${dateRange.readable}). A game is ONLY valid if it happens ON one of these specific dates.
+   - ALLOWED: Real scheduled games in the TOP professional league (Premier League, La Liga, NBA, EuroLeague, ATP/WTA tennis, top national league, local derby).
+   - FORBIDDEN: Stadium tours, sports museums, empty stadium walks, "experience the atmosphere", generic amateur games.
+   - If the REAL-WORLD SEARCH RESULTS above show a specific game within ${dateRange.iso.start}–${dateRange.iso.end}, use it: name both teams, the exact date, and the stadium.
+   - If the search results DO NOT show a specific game within these exact dates, do NOT invent one. Instead, in the 'description' field of the activity, clearly write in Hebrew: "לא נמצא משחק מאומת בתאריכים אלו. בדקו את לוח המשחקים הרשמי" and provide the official league/team schedule link in 'ticketLink'. The activity 'name' should still be the stadium/arena name (e.g., "אצטדיון קאמפ נואו (Camp Nou)").
+   - For tennis: only ATP/WTA tournaments happening during the dates.
+   - For basketball: only NBA, EuroLeague, or the top local league during the dates.
+   - NEVER invent scores, player names, or fake fixtures.
+   - If the destination has NO top-tier sports at all, be honest in the description and suggest the closest real option.
 11. TICKETS: For proven events or museums, provide an official website or a search link to buy tickets in the 'ticketLink' field. If not applicable, return an empty string "".
 12. NATURAL, NON-ROBOTIC HEBREW: Write every 'description' the way an experienced Israeli travel writer would - fluent, idiomatic, and specific to that exact place. NEVER produce a literal word-for-word translation of generic English tourism phrasing (that is what reads as robotic). Vary sentence openings and structure across activities - do not start multiple descriptions with the same word or template phrase (e.g., don't begin every single description with "תיהנו מ..." או "בקרו ב..."). Use concrete, sensory, place-specific details rather than generic filler.
 
@@ -522,7 +552,7 @@ Rules:
 - High diversity, no repetition between days. Write in natural, engaging Hebrew.
 - ${lengthConstraint}`;
 
-      const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || destination}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel Style: ${travelStyle}`;
+      const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || destination}\nStart Date: ${startDate || "N/A"}\nEnd Date: ${dateRange.iso.end}\nTrip Duration: ${days} days (${dateRange.readable})\nTravel Style: ${travelStyle}`;
 
       // ל-llama-3.1-8b-instant יש תקרת פלט של 8192 טוקנים - לא מבקשים יותר כדי לא לקבל שגיאת 400
       const attemptMaxTokens = isFastModel
