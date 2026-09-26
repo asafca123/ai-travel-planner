@@ -5,7 +5,7 @@ export const runtime = 'edge';
 
 // בחינם (Hobby) Vercel חותך את הפונקציה אחרי 10 שניות בכל מקרה -
 // המספר כאן רלוונטי רק בחשבון בתשלום
-export const maxDuration = 30; // === שינוי 2: הוגדל ל-30 שניות עם Edge ===
+export const maxDuration = 30;
 
 let cachedModel: string = "";
 
@@ -179,8 +179,8 @@ function robustJsonParse(text: string) {
 // אז 8192 טוקנים קבועים לא מספיקים לטיולים ארוכים. llama-3.3-70b-versatile
 // תומך עד 32,768 טוקני פלט - אז מנצלים את זה בהתאם לאורך הטיול והניסיון.
 function computeMaxTokens(numDays: number, attempt: number): number {
-  // === שינוי 3: המודל המהיר (llama-3.1-8b-instant) תומך רק ב-8,192 טוקנים ===
-  // ביקשנו 32,000 - זה גרם לשגיאת HTTP 400 מיידית וקריסה.
+  // === שינוי 2: המודל המהיר תומך רק ב-8,192 טוקנים ===
+  // ביקשנו 32,000 - זה גרם לשגיאת HTTP 400 מיידית. כעת 7,000 מקסימום.
   const HARD_CAP = 7000;
   const baseTokens = 1000;
   const perDayTokens = 500;
@@ -368,12 +368,44 @@ export async function POST(req: NextRequest) {
 
     const modelName = await getAvailableGroqModel(apiKey);
 
-    // === שינוי 4: מודל מהיר תמיד (הכרחי בחינם של Vercel) ===
-    // ב-Edge יש 30 שניות. llama-3.3-70b מייצר ~300 טוקנים/שנייה,
-    // ולכן מסלול של 3+ ימים עלול לחרוג מהזמן. llama-3.1-8b-instant פי 2-3
-    // יותר מהיר - מספיק לכל טיול, גם אם האיכות קצת נמוכה יותר.
-    const isFastModel = true; // === היה: (Number(days) || 3) >= 5 ===
-    const finalModel = isFastModel ? "llama-3.1-8b-instant" : modelName;
+    // === שינוי 3 (קריטי!): בחירת מודל דינמית מתוך המודלים שזמינים בחשבון שלך ===
+    // הבעיה: קוד קודם כפה "llama-3.1-8b-instant" - וקיבלנו שגיאת HTTP 404
+    // כי המודל הזה לא קיים או לא נגיש בחשבון שלך.
+    // הפתרון: שולפים את רשימת המודלים האמיתית ובוחרים את המהיר מביניהם.
+    let finalModel = "llama-3.3-70b-versatile"; // ברירת מחדל בטוחה
+    try {
+      const modelsRes = await fetch("https://api.groq.com/openai/v1/models", {
+        headers: { "Authorization": `Bearer ${apiKey}` }
+      });
+      if (modelsRes.ok) {
+        const modelsData = await modelsRes.json();
+        const availableIds: string[] = (modelsData.data || []).map((m: any) => m.id);
+        
+        // מחפשים מודל מהיר (8b) מתוך הרשימה הזמינה
+        const fastCandidate = availableIds.find((id: string) => 
+          id.includes("8b-instant") || 
+          id.includes("8b-8192") ||
+          id.includes("gemma2-9b")
+        );
+        
+        if (fastCandidate) {
+          finalModel = fastCandidate;
+        } else if (availableIds.length > 0) {
+          // אם אין מודל מהיר, בוחרים את הראשון שאינו guard/whisper
+          const safe = availableIds.find((id: string) => 
+            !id.includes("guard") && !id.includes("whisper") && !id.includes("tts")
+          );
+          finalModel = safe || availableIds[0];
+        }
+        
+        console.log("[DEBUG] זמינים בחשבון שלך:", availableIds);
+        console.log("[DEBUG] נבחר מודל:", finalModel);
+      }
+    } catch (e) {
+      console.error("[DEBUG] שגיאה בשליפת מודלים:", e);
+    }
+
+    const isFastModel = finalModel.includes("8b") || finalModel.includes("9b");
 
     // === חדש: חיפוש קרקוע אמיתי לפי יעד + סגנון טיול ===
     // עודכן: קודם בודקים קאש (Upstash) לפי מפתח יעד+סגנון מנורמל.
@@ -496,7 +528,7 @@ Rules:
             "Content-Type": "application/json",
             "Authorization": `Bearer ${apiKey}`,
           },
-          // === שינוי 5: הגנה מפני בקשה שנתקעת - אחרי 28 שניות מתבצע ביטול אוטומטי ===
+          // === שינוי 4: הגנה מפני בקשה שנתקעת - אחרי 28 שניות מתבצע ביטול אוטומטי ===
           // (ב-Edge יש 30 שניות, אז 28 זה הזמן הבטוח)
           signal: AbortSignal.timeout(28000),
           body: JSON.stringify({
@@ -507,7 +539,7 @@ Rules:
             ],
             temperature: 0.7, // חזרנו לטמפרטורה נורמלית כדי למנוע את הלולאות והחזרתיות של המקומות
             max_tokens: attemptMaxTokens
-            // === שינוי 6: הוסר max_completion_tokens ===
+            // === שינוי 5: הוסר max_completion_tokens ===
             // Groq דוחה בקשות עם שני השדות יחד עם שגיאת HTTP 400 - זה היה הגורם לקריסה!
           }),
         });
