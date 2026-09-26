@@ -143,7 +143,7 @@ User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
 
 CRITICAL ANTI-HALLUCINATION & OPTIMIZATION RULES:
 1. TYPO CORRECTION: If the user misspelled the destination (e.g. 'קלימנוש' instead of 'קלימנוס'), auto-correct it silently and plan for the real place.
-2. EXACT LAND COORDINATES: Ensure 'lat' and 'lng' point precisely to the actual building, trail entrance, or beach on SOLID LAND. DO NOT place coordinates in the middle of the sea or ocean!
+2. EXACT GOOGLE MAPS LOCATIONS & NO CITY-CENTER DUMPING: Ensure 'lat' and 'lng' point precisely to the actual building, trail entrance, or beach on SOLID LAND. If you do not know the exact coordinates of a specific cliff or beach, DO NOT fallback to the "city center" or main port (this leads to hallucinations). Instead, fallback to the broader verifiable geographical feature on Google Maps (e.g., the specific National Park, nature reserve, or exact coastal strip). NEVER guess water coordinates!
 3. DESTINATION DNA & EXTREME SPORTS: If 'extreme sports' is selected, analyze what the destination is actually famous for. For example, Kalymnos is for rock climbing (not surfing). Siargao is for surfing. Suggest ONLY the correct sport, use professional terminology, and link to professional sites (e.g., Mountain Project, Surfline).
 4. OBSCURE DESTINATIONS: If the destination is a small town, island, or off the beaten path, DO NOT INVENT generic museums or fake attractions. Rely strictly on real nature, geography, or authentic local life.
 5. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining in the area.
@@ -202,7 +202,7 @@ Rules:
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
             ],
-            temperature: 0.4, // הורדנו את רמת היצירתיות כדי שיהיה יותר ממוקד וענייני
+            temperature: 0.7, // חזרנו לטמפרטורה נורמלית כדי למנוע את הלולאות והחזרתיות של המקומות
             max_tokens: 8192
           }),
         });
