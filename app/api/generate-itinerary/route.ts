@@ -186,6 +186,161 @@ function computeMaxTokens(numDays: number, attempt: number): number {
   return Math.min(HARD_CAP, Math.round(budget));
 }
 
+// === חדש: קאש קטן ב-Upstash Redis (חינמי, ללא כרטיס אשראי) ===
+// מטרת הקאש: לא לבזבז מכסת חיפושים אמיתית (Serper) על אותו יעד+סגנון
+// פעמיים. אם אין UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN
+// מוגדרים, שתי הפונקציות פשוט לא עושות כלום ומחזירות null/undefined -
+// המערכת ממשיכה לעבוד כרגיל, רק בלי החיסכון הזה.
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+async function cacheGet(key: string): Promise<string | null> {
+  if (!UPSTASH_URL || !UPSTASH_TOKEN) return null;
+  try {
+    const res = await fetch(`${UPSTASH_URL}/get/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.result === "string" ? data.result : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function cacheSet(key: string, value: string, ttlSeconds: number): Promise<void> {
+  if (!UPSTASH_URL || !UPSTASH_TOKEN) return;
+  try {
+    await fetch(UPSTASH_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${UPSTASH_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(["SET", key, value, "EX", String(ttlSeconds)])
+    });
+  } catch (e) {}
+}
+
+// === חדש: חיפוש אינטרנט אמיתי (Serper.dev) לקרקוע העובדות ===
+// המודל עצמו לא "יודע" לגלוש - הוא מנחש מהזיכרון שלו, וזה בדיוק למה
+// הוא מפספס דברים ספציפיים כמו מסלולי טיפוס בקלימנוס. הפונקציה הזו
+// מביאה תוצאות חיפוש אמיתיות ומזינה אותן חזרה לפרומפט כחומר מקור.
+// דורש מפתח SERPER_API_KEY (נרשמים באימייל בלבד ב-serper.dev - ללא
+// כרטיס אשראי, 2,500 חיפושים חינם). אם אין מפתח, הפונקציה מחזירה
+// מחרוזת ריקה והמערכת ממשיכה כרגיל בלעדיה - לא קורסת ולא נעצרת.
+async function searchWebForGrounding(query: string, apiKey: string): Promise<string> {
+  try {
+    const res = await fetch("https://google.serper.dev/search", {
+      method: "POST",
+      headers: {
+        "X-API-KEY": apiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ q: query, num: 8 })
+    });
+
+    if (!res.ok) return "";
+
+    const data = await res.json();
+    const organic = Array.isArray(data.organic) ? data.organic : [];
+
+    if (organic.length === 0) return "";
+
+    return organic
+      .slice(0, 8)
+      .map((r: any, i: number) => `${i + 1}. ${r.title || ""} — ${r.snippet || ""}`)
+      .join("\n");
+  } catch (e) {
+    return "";
+  }
+}
+
+// === עודכן: אימות מיקום מול Nominatim (OpenStreetMap) במקום Google ===
+// Google Geocoding דורש חיוב בכרטיס אשראי גם לשימוש חינמי. Nominatim
+// הוא מנוע geocoding חינמי ופתוח לגמרי - אין הרשמה, אין מפתח API,
+// אין כרטיס אשראי בכלל. לעולם לא סומכים על קואורדינטות שה-AI המציא
+// בעצמו (זו הסיבה שנקודות נופלות בים) - במקום זה שולפים את השם
+// האנגלי/הלועזי מתוך הסוגריים (יש סיכוי גבוה יותר להתאמה מדויקת)
+// ומחליפים את lat/lng בקואורדינטות האמיתיות שהשירות מחזיר.
+// מדיניות השימוש ההוגן של Nominatim מבקשת מקסימום בקשה אחת בשנייה
+// ו-User-Agent אמיתי שמזהה את האפליקציה - שני התנאים מיושמים למטה.
+async function geocodePlace(
+  name: string,
+  destination: string
+): Promise<{ lat: number; lng: number; displayName?: string } | null> {
+  try {
+    const englishMatch = name.match(/\(([^)]+)\)\s*$/);
+    const searchName = englishMatch ? englishMatch[1] : name;
+    const query = `${searchName}, ${destination}`;
+
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+    const res = await fetch(url, {
+      headers: {
+        // חובה לפי מדיניות השימוש של Nominatim - יש להחליף לשם האפליקציה
+        // ואימייל אמיתי לפני שהאתר עולה בקנה מידה משמעותי
+        "User-Agent": "AI-Travel-Planner/1.0 (contact: your-email@example.com)"
+      }
+    });
+    if (!res.ok) return null;
+
+    const results = await res.json();
+    if (Array.isArray(results) && results.length > 0) {
+      const lat = parseFloat(results[0].lat);
+      const lng = parseFloat(results[0].lon);
+      if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+        return { lat, lng, displayName: results[0].display_name };
+      }
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// === עודכן: מריצים אימות מיקומים על כל הפעילויות, בזה אחר זה ===
+// (לא במקביל - Nominatim מבקש מקסימום בקשה אחת בשנייה בשימוש ההוגן שלו,
+// אז יש כאן השהיה של כ-1.1 שניות בין כל בקשה). לצד זה יש תקציב זמן
+// כולל לשלב הזה, כדי לא לחרוג ממגבלת ה-60 שניות של הפונקציה - אם
+// טיול ארוך מאוד לא מספיק להיבדק במלואו בזמן, שאר הפעילויות פשוט
+// נשארות עם הקואורדינטות שה-AI סיפק (ומסומנות כלא-מאומתות) במקום
+// שהפונקציה כולה תיכשל.
+const NOMINATIM_MIN_INTERVAL_MS = 1100;
+const GEOCODE_TIME_BUDGET_MS = 40000;
+
+async function verifyAllLocations(parsed: any, destination: string) {
+  if (!parsed || !Array.isArray(parsed.days)) return;
+
+  const startedAt = Date.now();
+
+  for (const day of parsed.days) {
+    if (!Array.isArray(day.activities)) continue;
+    for (const act of day.activities) {
+      if (!act.name) continue;
+
+      if (Date.now() - startedAt > GEOCODE_TIME_BUDGET_MS) {
+        if (act.verifiedLocation === undefined) act.verifiedLocation = false;
+        continue;
+      }
+
+      const geo = await geocodePlace(act.name, destination);
+      if (geo) {
+        act.lat = geo.lat;
+        act.lng = geo.lng;
+        act.verifiedLocation = true;
+      } else {
+        act.verifiedLocation = false;
+      }
+
+      await sleep(NOMINATIM_MIN_INTERVAL_MS);
+    }
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
@@ -205,6 +360,31 @@ export async function POST(req: NextRequest) {
     }
 
     const modelName = await getAvailableGroqModel(apiKey);
+
+    // === חדש: חיפוש קרקוע אמיתי לפי יעד + סגנון טיול ===
+    // עודכן: קודם בודקים קאש (Upstash) לפי מפתח יעד+סגנון מנורמל.
+    // רק אם אין תוצאה שמורה, עושים חיפוש אמיתי (Serper) ושומרים אותו
+    // ל-30 יום - כך שכל בקשה חוזרת לאותו יעד+סגנון לא צורכת מכסה נוספת.
+    // אם אין SERPER_API_KEY, webContext יישאר ריק והמערכת ממשיכה כרגיל.
+    const serperApiKey = process.env.SERPER_API_KEY;
+    let webContext = "";
+    if (serperApiKey) {
+      const normalizedDestination = String(destination).trim().toLowerCase();
+      const normalizedStyle = String(travelStyle).trim().toLowerCase();
+      const searchCacheKey = `search-grounding:${normalizedDestination}:${normalizedStyle}`;
+
+      const cachedContext = await cacheGet(searchCacheKey);
+      if (cachedContext !== null) {
+        webContext = cachedContext;
+      } else {
+        const groundingQuery = `${destination} ${travelStyle} specific real named spots routes trails 2026 guide`;
+        webContext = await searchWebForGrounding(groundingQuery, serperApiKey);
+        if (webContext) {
+          // 30 יום - מסלולי טיפוס, שבילים ואתרי טבע לא משתנים בטווח הזמן הזה
+          await cacheSet(searchCacheKey, webContext, 60 * 60 * 24 * 30);
+        }
+      }
+    }
 
     let parsedJson = null;
     let attempt = 0;
@@ -226,26 +406,32 @@ export async function POST(req: NextRequest) {
         ? "For very long trips (10+ days): generate 3-4 activities per day with concise but complete descriptions (1-2 sentences each) so the full trip fits within the response."
         : "Provide diverse, rich, and detailed descriptions (2-3 sentences). Generate 3-5 activities per day.";
 
+      // === חדש: בלוק קרקוע עובדתי מתוצאות חיפוש אמיתיות ===
+      const webContextBlock = webContext
+        ? `\nREAL-WORLD SEARCH RESULTS FOR THIS DESTINATION AND STYLE (treat this as your primary source of truth for anything specific - named routes, crags, trails, sectors, festivals, events, etc. Reference SPECIFIC real names found here instead of inventing generic ones. If a result is irrelevant, ignore it):\n${webContext}\n`
+        : "";
+
       const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
 All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebrew.
 
 User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
 "${customPlaces || "None provided"}"
-
+${webContextBlock}
 CRITICAL ANTI-HALLUCINATION & OPTIMIZATION RULES:
 1. TYPO CORRECTION: If the user misspelled the destination (e.g. 'קלימנוש' instead of 'קלימנוס'), auto-correct it silently and plan for the real place.
-2. EXACT GOOGLE MAPS LOCATIONS & NO CITY-CENTER DUMPING: Ensure 'lat' and 'lng' point precisely to the actual building, trail entrance, or beach on SOLID LAND. If you do not know the exact coordinates of a specific cliff or beach, DO NOT fallback to the "city center" or main port (this leads to hallucinations). Instead, fallback to the broader verifiable geographical feature on Google Maps (e.g., the specific National Park, nature reserve, or exact coastal strip). NEVER guess water coordinates!
-3. DESTINATION DNA & EXTREME SPORTS: If 'extreme sports' is selected, analyze what the destination is actually famous for. For example, Kalymnos is for rock climbing (not surfing). Siargao is for surfing. Suggest ONLY the correct sport, use professional terminology, and link to professional sites (e.g., Mountain Project, Surfline).
+2. EXACT GOOGLE MAPS LOCATIONS & NO CITY-CENTER DUMPING: Ensure 'lat' and 'lng' point precisely to the actual building, trail entrance, or beach on SOLID LAND. If you do not know the exact coordinates of a specific cliff or beach, DO NOT fallback to the "city center" or main port (this leads to hallucinations). Instead, fallback to the broader verifiable geographical feature on Google Maps (e.g., the specific National Park, nature reserve, or exact coastal strip). NEVER guess water coordinates! (Note: the server will still cross-check every coordinate against a real geocoding service afterward, but a precise, real place NAME here is what makes that cross-check succeed instead of falling back to something vague.)
+3. DESTINATION DNA & EXTREME SPORTS: If 'extreme sports' is selected, analyze what the destination is actually famous for. For example, Kalymnos is for rock climbing (not surfing). Siargao is for surfing. Suggest ONLY the correct sport, use professional terminology, and link to professional sites (e.g., Mountain Project, Surfline). When the REAL-WORLD SEARCH RESULTS block above lists specific named routes, sectors, or crags, USE THOSE EXACT NAMES rather than a generic "go rock climbing" activity - name the actual sector/route (e.g., "Grande Grotta", "Odyssey", "Arhi") the way a specialized local guide would.
 4. OBSCURE DESTINATIONS: If the destination is a small town, island, or off the beaten path, DO NOT INVENT generic museums or fake attractions. Rely strictly on real nature, geography, or authentic local life.
 5. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining in the area.
 6. GEOGRAPHIC ANCHORING & COMMUTE: All activities MUST be within a realistic commute (max 1 hour).
 7. SMART REPETITION: DO NOT repeat specific tours, museums, or landmarks. However, you MAY freely repeat visits to beautiful beaches, pools, or nature relaxation spots on different days.
 
 CRITICAL RULES FOR BILINGUAL NAMES, TICKETS & EVENTS:
-8. BILINGUAL NAMES & PROPER TRANSLITERATION: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. CRITICAL: DO NOT literally translate proper nouns! Transliterate them (e.g., 'Southbank Centre' should be 'מרכז סאות'בנק'). Only translate generic words like Park, Museum, Beach.
+8. BILINGUAL NAMES & PROPER TRANSLITERATION: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. CRITICAL: DO NOT literally translate proper nouns! Transliterate them (e.g., 'Southbank Centre' should be 'מרכז סאות'בנק'). Only translate generic words like Park, Museum, Beach. This applies to specific route/crag/trail names too (e.g., a climbing sector called "Odyssey" becomes "אודיסיאה (Odyssey)", never a literal Hebrew translation of the word).
 9. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
 10. ZERO HALLUCINATION FOR EVENTS (SPORTS/CONCERTS): ONLY suggest MASSIVE, world-class arena/stadium events (e.g., top-tier football, NFL, Stevie Wonder) IF AND ONLY IF you have 100% factual knowledge they happen on these exact dates in the destination. Otherwise, IGNORE the request completely and suggest normal sightseeing. No empty stadium tours.
 11. TICKETS: For proven events or museums, provide an official website or a search link to buy tickets in the 'ticketLink' field. If not applicable, return an empty string "".
+12. NATURAL, NON-ROBOTIC HEBREW: Write every 'description' the way an experienced Israeli travel writer would - fluent, idiomatic, and specific to that exact place. NEVER produce a literal word-for-word translation of generic English tourism phrasing (that is what reads as robotic). Vary sentence openings and structure across activities - do not start multiple descriptions with the same word or template phrase (e.g., don't begin every single description with "תיהנו מ..." or "בקרו ב..."). Use concrete, sensory, place-specific details rather than generic filler.
 
 Required JSON Structure:
 {
@@ -337,6 +523,16 @@ Rules:
         }
       } catch (err: any) {
         lastError = err.message;
+      }
+    }
+
+    // === עודכן: אימות כל המיקומים מול Nominatim לפני החזרת התשובה ===
+    // רץ תמיד (אין צורך במפתח API או בכרטיס אשראי) כל עוד קיבלנו מסלול תקין.
+    if (parsedJson) {
+      try {
+        await verifyAllLocations(parsedJson, destination);
+      } catch (e) {
+        console.error("Location verification step failed:", e);
       }
     }
 
