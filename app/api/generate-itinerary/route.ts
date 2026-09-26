@@ -52,6 +52,68 @@ async function getAvailableGroqModel(apiKey: string): Promise<string> {
   return cachedModel;
 }
 
+// === חדש: מנוע תיקון JSON חכם המבוסס על מעקב עומק סוגריים ומחרוזות ===
+// בניגוד לרג'קסים הישנים, זה מטפל נכון בחיתוך אמיתי של הטוקסט (למשל
+// באמצע מחרוזת או באמצע ערך), ע"י איתור נקודת החיתוך הבטוחה האחרונה
+// (סוגר שנסגר בהצלחה, או פסיק בין איברים שלמים) וסגירת כל המבנים הפתוחים.
+function smartCompleteJson(text: string): any {
+  try {
+    return JSON.parse(text);
+  } catch (e) {}
+
+  const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const firstOpen = cleaned.indexOf("{");
+  if (firstOpen === -1) throw new Error("No JSON object start found");
+  const candidate = cleaned.substring(firstOpen);
+
+  const stack: string[] = [];
+  let inString = false;
+  let escapeNext = false;
+  let lastSafeIndex = -1;
+
+  for (let i = 0; i < candidate.length; i++) {
+    const ch = candidate[i];
+
+    if (inString) {
+      if (escapeNext) {
+        escapeNext = false;
+      } else if (ch === "\\") {
+        escapeNext = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === "{" || ch === "[") {
+      stack.push(ch);
+    } else if (ch === "}" || ch === "]") {
+      stack.pop();
+      lastSafeIndex = i + 1; // a value/object/array just closed cleanly — safe cut point
+    } else if (ch === "," && stack.length > 0) {
+      lastSafeIndex = i; // a previous sibling value finished right before this comma
+    }
+  }
+
+  if (lastSafeIndex === -1) {
+    throw new Error("Could not find any safe truncation point in response");
+  }
+
+  const truncated = candidate.substring(0, lastSafeIndex);
+
+  let closer = "";
+  for (let i = stack.length - 1; i >= 0; i--) {
+    closer += stack[i] === "{" ? "}" : "]";
+  }
+
+  return JSON.parse(truncated + closer);
+}
+
 // מנוע פענוח ותיקון JSON חסין לחלוטין (מטפל בחיתוכי טוקנים, פסיקים ומבנים שבורים)
 function robustJsonParse(text: string) {
   let cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
@@ -59,6 +121,12 @@ function robustJsonParse(text: string) {
   try {
     return JSON.parse(cleaned);
   } catch (e) {}
+
+  // חדש: ניסיון תיקון מודע-מבנה לפני הרג'קסים הישנים — הרבה יותר אמין
+  // עבור תשובות שנחתכו אמצע (finish_reason: "length").
+  try {
+    return smartCompleteJson(cleaned);
+  } catch (eSmart) {}
 
   let firstOpen = cleaned.indexOf('{');
   if (firstOpen !== -1) {
@@ -100,6 +168,24 @@ function robustJsonParse(text: string) {
   throw new Error("No valid JSON structure could be recovered from response");
 }
 
+// === חדש: תקציב טוקנים דינמי לפי מספר הימים ===
+// עברית צורכת בממוצע פי 2-3 טוקנים לעומת אנגלית עבור אותו תוכן, ולכל
+// פעילות יש כמה שדות (time/name/description/category/lat/lng/ticketLink),
+// אז 8192 טוקנים קבועים לא מספיקים לטיולים ארוכים. llama-3.3-70b-versatile
+// תומך עד 32,768 טוקני פלט - אז מנצלים את זה בהתאם לאורך הטיול והניסיון.
+function computeMaxTokens(numDays: number, attempt: number): number {
+  const HARD_CAP = 32000;
+  const baseTokens = 3500;
+  const perDayTokens = 1500;
+  let budget = baseTokens + numDays * perDayTokens;
+
+  // בכל ניסיון חוזר (במקרה של חיתוך) מגדילים את התקציב משמעותית
+  if (attempt >= 2) budget = Math.max(budget, budget * 1.6);
+  if (attempt >= 3) budget = HARD_CAP;
+
+  return Math.min(HARD_CAP, Math.round(budget));
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
@@ -122,17 +208,22 @@ export async function POST(req: NextRequest) {
 
     let parsedJson = null;
     let attempt = 0;
-    const MAX_ATTEMPTS = 2; 
+    const MAX_ATTEMPTS = 3;
     let lastError = "";
+    let lastWasTruncated = false;
 
     while (attempt < MAX_ATTEMPTS && !parsedJson) {
       attempt++;
 
       const numDays = Number(days) || 3;
       
-      // === התיקון המרכזי כאן: משטר טוקנים קפדני לטיולים מ-7 ימים ומעלה ===
-      const lengthConstraint = numDays >= 7 
-        ? "CRITICAL OPTIMIZATION FOR 7+ DAYS: To prevent API timeout and JSON truncation, you MUST generate EXACTLY 2-3 activities per day. Descriptions MUST be extremely short (under 10 words max). DO NOT write long paragraphs!"
+      // === עודכן: משטר תוכן לטיולים ארוכים ===
+      // בעבר הצמצום החד (2-3 פעילויות, תיאורים מתחת ל-10 מילים) היה נועד
+      // לעקוף את בעיית חיתוך הטוקנים. עכשיו שתקציב הטוקנים מחושב נכון
+      // ומספיק גם לטיולים ארוכים, אין צורך "לחסוך" למשתמש על חשבון
+      // איכות המסלול - רק לטיולים ארוכים מאוד (10+ ימים) שומרים על מתינות קלה.
+      const lengthConstraint = numDays >= 10
+        ? "For very long trips (10+ days): generate 3-4 activities per day with concise but complete descriptions (1-2 sentences each) so the full trip fits within the response."
         : "Provide diverse, rich, and detailed descriptions (2-3 sentences). Generate 3-5 activities per day.";
 
       const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
@@ -189,6 +280,8 @@ Rules:
 
       const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || destination}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel Style: ${travelStyle}`;
 
+      const attemptMaxTokens = computeMaxTokens(numDays, attempt);
+
       try {
         const apiResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
@@ -203,7 +296,10 @@ Rules:
               { role: "user", content: userPrompt }
             ],
             temperature: 0.7, // חזרנו לטמפרטורה נורמלית כדי למנוע את הלולאות והחזרתיות של המקומות
-            max_tokens: 8192
+            max_tokens: attemptMaxTokens,
+            // חדש: Groq/OpenAI מיישנים בהדרגה את max_tokens לטובת max_completion_tokens.
+            // שולחים את שניהם כדי להישאר תואמים גם כשהתמיכה ב-max_tokens תוסר.
+            max_completion_tokens: attemptMaxTokens
           }),
         });
 
@@ -216,6 +312,16 @@ Rules:
 
         const data = JSON.parse(responseText);
         const rawText = data.choices?.[0]?.message?.content;
+        const finishReason = data.choices?.[0]?.finish_reason;
+        lastWasTruncated = finishReason === "length";
+
+        // חדש: אם התשובה נחתכה עקב מגבלת טוקנים ועוד נשארו ניסיונות,
+        // עדיף לנסות שוב מיד עם תקציב טוקנים גדול יותר במקום לנסות
+        // לתקן JSON חלקי (זה בדיוק מה שגרם למסך השגיאה בעבר).
+        if (lastWasTruncated && attempt < MAX_ATTEMPTS) {
+          lastError = "Response truncated (finish_reason=length) — retrying with a larger token budget.";
+          continue;
+        }
         
         if (rawText) {
           parsedJson = robustJsonParse(rawText);
