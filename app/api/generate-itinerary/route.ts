@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// בחינם (Hobby) Vercel חותך את הפונקציה אחרי 10 שניות בכל מקרה -
-// המספר כאן רלוונטי רק בחשבון בתשלום
-export const maxDuration = 60;
+// === חדש: מעבר ל-Edge Runtime של Vercel ===
+// זה מאפשר לפונקציה לרוץ עד 30 שניות בחשבון החינמי (במקום 10 שניות)
+export const runtime = 'edge';
+export const maxDuration = 30;
 
 let cachedModel: string = "";
 
@@ -364,11 +365,10 @@ export async function POST(req: NextRequest) {
 
     const modelName = await getAvailableGroqModel(apiKey);
 
-    // === חדש: מודל מהיר לטיולים ארוכים (הכרחי בחינם של Vercel) ===
-    // ב-Hobby יש רק 10 שניות לפונקציה. llama-3.3-70b מייצר ~300 טוקנים/שנייה,
-    // ולכן מסלול של 5+ ימים עלול לחרוג מהזמן. llama-3.1-8b-instant פי 2-3
-    // יותר מהיר - מספיק לטיולים ארוכים, גם אם האיכות קצת נמוכה יותר.
-    const isFastModel = (Number(days) || 3) >= 5;
+    // === שונה: שימוש במודל המהיר ביותר תמיד ===
+    // שים לב: ב-Edge יש 30 שניות. מודל 70b לוקח יותר מדי זמן והורג את הפונקציה.
+    // אנחנו מחייבים את המודל המהיר (8b) בכל בקשה כדי למנוע קריסות.
+    const isFastModel = true; // שונה מ-(Number(days) || 3) >= 5
     const finalModel = isFastModel ? "llama-3.1-8b-instant" : modelName;
 
     // === חדש: חיפוש קרקוע אמיתי לפי יעד + סגנון טיול ===
@@ -492,8 +492,8 @@ Rules:
             "Content-Type": "application/json",
             "Authorization": `Bearer ${apiKey}`,
           },
-          // הגנה מפני בקשה שנתקעת - אחרי 50 שניות מתבצע ביטול אוטומטי
-          signal: AbortSignal.timeout(50000),
+          // הגנה מפני בקשה שנתקעת - ב-Edge יש 30 שניות, מבטלים אחרי 28
+          signal: AbortSignal.timeout(28000),
           body: JSON.stringify({
             model: finalModel,
             messages: [
