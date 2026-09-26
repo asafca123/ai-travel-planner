@@ -124,6 +124,65 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'שגיאה ביצירת המסלול');
       setItinerary(data);
+      
+      // === חדש: geocoding אוטומטי ברקע דרך Nominatim ===
+      // הבעיה: ה-AI לפעמים מחזיר lat=0, lng=0 כשקשה לו למצוא קואורדינטות.
+      // הפתרון: כל פעילות עם קואורדינטות חשודות (0 או ריקות) נשלחת
+      // אוטומטית ל-Nominatim לתיקון. זה רץ ברקע עם תור של בקשה אחת לשנייה
+      // כפי שמדיניות השימוש ההוגן של Nominatim דורשת.
+      data.days?.forEach((day: any, dayIdx: number) => {
+        day.activities?.forEach((act: any, actIdx: number) => {
+          const lat = Number(act.lat);
+          const lng = Number(act.lng);
+          
+          // אם הקואורדינטות ריקות/אפס/לא חוקיות - תתקן אותן
+          if (!lat || !lng || isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0)) {
+            
+            // שולחים ל-Nominatim עם השהיה מדורגת כדי לא להפר את המגבלה
+            setTimeout(async () => {
+              try {
+                // שולפים את השם האנגלי מתוך הסוגריים
+                const englishMatch = act.name?.match(/\(([^)]+)\)\s*$/);
+                const searchName = englishMatch ? englishMatch[1] : act.name;
+                const query = `${searchName}, ${data.destination}`;
+                
+                const geoRes = await fetch(
+                  `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
+                  {
+                    headers: {
+                      "User-Agent": "AI-Travel-Planner/1.0 (contact: your-email@example.com)"
+                    }
+                  }
+                );
+                const geoData = await geoRes.json();
+                
+                if (Array.isArray(geoData) && geoData.length > 0) {
+                  const newLat = parseFloat(geoData[0].lat);
+                  const newLng = parseFloat(geoData[0].lon);
+                  
+                  if (!isNaN(newLat) && !isNaN(newLng)) {
+                    // מעדכנים את ה-state
+                    setItinerary((prev: any) => {
+                      if (!prev) return prev;
+                      const updated = { ...prev };
+                      if (updated.days?.[dayIdx]?.activities?.[actIdx]) {
+                        updated.days[dayIdx].activities[actIdx].lat = newLat;
+                        updated.days[dayIdx].activities[actIdx].lng = newLng;
+                        updated.days[dayIdx].activities[actIdx].verifiedLocation = true;
+                      }
+                      return updated;
+                    });
+                  }
+                }
+              } catch (e) {
+                // אם Nominatim לא מוצא - משאירים את הקואורדינטות המקוריות
+                console.log("Geocoding failed for:", act.name);
+              }
+            }, (dayIdx * 10 + actIdx) * 1200); // השהיה מדורגת: 1.2 שניות בין בקשות
+          }
+        });
+      });
+      
     } catch (err: any) {
       setError(err.message);
     } finally {
