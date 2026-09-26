@@ -384,7 +384,7 @@ export async function POST(req: NextRequest) {
 
     const modelName = await getAvailableGroqModel(apiKey);
 
-    // === שינוי קריטי: בחירת מודל חכמה שלא מכפיתה מודל ספציפי ===
+    // === שינוי: בחירת מודל חכמה שלא מכפיתה מודל ספציפי ===
     // הבעיה: כפינו בעבר "llama-3.3-70b-versatile" כברירת מחדל, אבל הוא לא
     // קיים בכל חשבון Groq. עכשיו אנחנו בוחרים אך ורק מתוך הרשימה האמיתית
     // שהחשבון שלך מחזיר, עם שתי שכבות סינון.
@@ -538,16 +538,13 @@ CRITICAL ANTI-HALLUCINATION & OPTIMIZATION RULES:
 CRITICAL RULES FOR BILINGUAL NAMES, TICKETS & EVENTS:
 8. BILINGUAL NAMES & PROPER TRANSLITERATION: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. CRITICAL: DO NOT literally translate proper nouns! Transliterate them (e.g., 'Southbank Centre' should be 'מרכז סאות'בנק'). Only translate generic words like Park, Museum, Beach. This applies to specific route/crag/trail names too (e.g., a climbing sector called "Odyssey" becomes "אודיסיאה (Odyssey)", never a literal Hebrew translation of the word).
 9. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
-10. SPORTS & EVENTS — STRICT DATE-BOUND RULES (READ VERY CAREFULLY):
-   - The trip is from ${dateRange.iso.start} to ${dateRange.iso.end} (${dateRange.readable}). A game is ONLY valid if it happens ON one of these specific dates.
-   - ALLOWED: Real scheduled games in the TOP professional league (Premier League, La Liga, NBA, EuroLeague, ATP/WTA tennis, top national league, local derby).
-   - FORBIDDEN: Stadium tours, sports museums, empty stadium walks, "experience the atmosphere", generic amateur games.
-   - If the REAL-WORLD SEARCH RESULTS above show a specific game within ${dateRange.iso.start}–${dateRange.iso.end}, use it: name both teams, the exact date, and the stadium.
-   - If the search results DO NOT show a specific game within these exact dates, do NOT invent one. Instead, in the 'description' field of the activity, clearly write in Hebrew: "לא נמצא משחק מאומת בתאריכים אלו. בדקו את לוח המשחקים הרשמי" and provide the official league/team schedule link in 'ticketLink'. The activity 'name' should still be the stadium/arena name (e.g., "אצטדיון קאמפ נואו (Camp Nou)").
-   - For tennis: only ATP/WTA tournaments happening during the dates.
-   - For basketball: only NBA, EuroLeague, or the top local league during the dates.
-   - NEVER invent scores, player names, or fake fixtures.
-   - If the destination has NO top-tier sports at all, be honest in the description and suggest the closest real option.
+10. SPORTS & EVENTS (if 'sports' style selected):
+   - Trip dates: ${dateRange.iso.start} to ${dateRange.iso.end}. Only games IN these dates count.
+   - Wanted: real pro games (Premier League, NBA, EuroLeague, ATP/WTA, top local league).
+   - FORBIDDEN: stadium tours, sports museums, empty stadium walks.
+   - If search results show a real game in these dates → use team names + date + stadium.
+   - If no game found in these dates → in description write in Hebrew: "לא נמצא משחק מאומת בתאריכים אלו. בדקו את לוח המשחקים הרשמי" and put the official schedule URL in ticketLink.
+   - Never invent scores, players, or fixtures.
 11. TICKETS: For proven events or museums, provide an official website or a search link to buy tickets in the 'ticketLink' field. If not applicable, return an empty string "".
 12. NATURAL, NON-ROBOTIC HEBREW: Write every 'description' the way an experienced Israeli travel writer would - fluent, idiomatic, and specific to that exact place. NEVER produce a literal word-for-word translation of generic English tourism phrasing (that is what reads as robotic). Vary sentence openings and structure across activities - do not start multiple descriptions with the same word or template phrase (e.g., don't begin every single description with "תיהנו מ..." או "בקרו ב..."). Use concrete, sensory, place-specific details rather than generic filler.
 
@@ -605,9 +602,9 @@ Rules:
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
             ],
-            temperature: 0.7, // חזרנו לטמפרטורה נורמלית כדי למנוע את הלולאות והחזרתיות של המקומות
-            max_tokens: attemptMaxTokens,
-            response_format: { type: "json_object" } // מכריח את Groq להחזיר JSON תקין
+            temperature: 0.7,
+            max_tokens: attemptMaxTokens
+            // הוסר response_format: { type: "json_object" } כדי לאפשר תשובות חלקיות
           }),
         });
 
