@@ -128,10 +128,14 @@ export async function POST(req: NextRequest) {
     while (attempt < MAX_ATTEMPTS && !parsedJson) {
       attempt++;
 
-      // חיסכון בטוקנים פועל אך ורק למסלולים של שבוע ומעלה
-      const lengthConstraint = attempt > 1 || Number(days) >= 7 
-        ? "LONG TRIP OPTIMIZATION: Keep activity descriptions concise and brief (1 short sentence max) to prevent JSON truncation."
-        : "Provide diverse, rich, and detailed descriptions (2-3 sentences).";
+      const numDays = Number(days) || 3;
+      
+      // הגנה משולשת למסלולים ארוכים - עכשיו יש חוק ל-10+ ימים שימנע שגיאות 13 יום
+      const lengthConstraint = numDays >= 10 
+        ? "MASSIVE TRIP OPTIMIZATION: To prevent JSON truncation for 10+ days, you MUST generate EXACTLY 2 activities per day. Descriptions MUST be under 8 words. Never skip days."
+        : (numDays >= 7 
+          ? "LONG TRIP OPTIMIZATION: Keep activity descriptions concise and brief (1 short sentence max) to prevent JSON truncation. Generate exactly 3 activities per day."
+          : "Provide diverse, rich, and detailed descriptions (2-3 sentences). Generate 3-5 activities per day.");
 
       const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
 All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebrew.
@@ -139,21 +143,19 @@ All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebr
 User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
 "${customPlaces || "None provided"}"
 
-CRITICAL LOGISTICS & ACCURACY RULES:
-1. EXACT LAND COORDINATES: Ensure 'lat' and 'lng' point precisely to the actual building, trail entrance, beach, or marina on LAND. DO NOT place coordinates in the middle of the sea or ocean!
-2. ABSOLUTELY NO REPETITION: Every single day and activity MUST be 100% unique. DO NOT repeat the same boat tour, the same waterfall, or the same beach twice. Diversify the experiences completely.
-3. EXTREME SPORTS EXPERT: If 'extreme sports' is selected, act as a local pro! Name specific world-famous climbing sectors/routes (e.g., 'Ton Sai Wall', 'Bouldering at...'), distinct surf breaks (e.g., 'Point break at...', 'Reef break at...'), or exact dive sites. Use authentic terminology. Provide a link to Surfline, MagicSeaweed, or Mountain Project in the 'ticketLink' field so they can check conditions/routes.
-4. DESTINATION DNA: If 'relaxed' is selected in tropical destinations, dedicate significant time to lounging at different beaches or resorts.
-5. OBSCURE DESTINATIONS: If the destination is a small town, island, or off the beaten path, DO NOT INVENT generic museums or fake attractions. Rely strictly on real nature, geography, or authentic local life.
-6. GEOGRAPHIC ANCHORING & COMMUTE: All activities MUST be within a realistic commute (max 1 hour). DO NOT suggest traveling to distant cities.
-7. MUST-SEE ATTRACTIONS: You MUST include the absolute most iconic landmarks of the destination, unless the user's custom places fill the schedule.
-8. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining (e.g., "טברנה מקומית על החוף").
+CRITICAL ANTI-HALLUCINATION & OPTIMIZATION RULES:
+1. TYPO CORRECTION: If the user misspelled the destination (e.g. 'קלימנוש' instead of 'קלימנוס'), auto-correct it silently and plan for the real place.
+2. EXACT LAND COORDINATES: Ensure 'lat' and 'lng' point precisely to the actual building, trail entrance, or beach on SOLID LAND. DO NOT place coordinates in the middle of the sea or ocean!
+3. DESTINATION DNA & EXTREME SPORTS: If 'extreme sports' is selected, analyze what the destination is actually famous for. For example, Kalymnos is for rock climbing (not surfing). Siargao is for surfing. Suggest ONLY the correct sport, use professional terminology, and link to professional sites (e.g., Mountain Project, Surfline).
+4. OBSCURE DESTINATIONS: If the destination is a small town, island, or off the beaten path, DO NOT INVENT generic museums or fake attractions. Rely strictly on real nature, geography, or authentic local life.
+5. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining in the area.
+6. GEOGRAPHIC ANCHORING & COMMUTE: All activities MUST be within a realistic commute (max 1 hour).
 
 CRITICAL RULES FOR BILINGUAL NAMES, TICKETS & EVENTS:
-9. BILINGUAL NAMES: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. Example: "מפרץ הגולשים (Surfer's Bay)".
-10. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
-11. ZERO HALLUCINATION FOR EVENTS (SPORTS/CONCERTS): If 'sports' or 'concerts' are selected, ONLY suggest MASSIVE, world-class arena/stadium events (e.g., top-tier football, NFL, Stevie Wonder) IF AND ONLY IF you have 100% factual knowledge they happen on these exact dates in the destination. Otherwise, IGNORE the request completely and suggest normal sightseeing. No local bars with live music, no empty stadium tours.
-12. TICKETS: For proven events, museums, or professional sports routes/surf spots, provide an official website, Surfline/Mountain Project link, or a search link to buy tickets in 'ticketLink'. If not applicable, return "".
+7. BILINGUAL NAMES: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses.
+8. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
+9. ZERO HALLUCINATION FOR EVENTS (SPORTS/CONCERTS): ONLY suggest MASSIVE, world-class arena/stadium events (e.g., top-tier football, NFL, Stevie Wonder) IF AND ONLY IF you have 100% factual knowledge they happen on these exact dates in the destination. Otherwise, IGNORE the request completely and suggest normal sightseeing. No empty stadium tours.
+10. TICKETS: For proven events or museums, provide an official website or a search link to buy tickets in the 'ticketLink' field. If not applicable, return an empty string "".
 
 Required JSON Structure:
 {
@@ -183,8 +185,7 @@ Required JSON Structure:
 
 Rules:
 - Generate ALL requested days (Day 1 through Day ${days}) fully without skipping.
-- Limit to exactly 3 to 5 activities per day.
-- Write in natural, engaging Hebrew.
+- High diversity, no repetition between days. Write in natural, engaging Hebrew.
 - ${lengthConstraint}`;
 
       const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || destination}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel Style: ${travelStyle}`;
