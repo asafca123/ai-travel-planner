@@ -130,12 +130,10 @@ export async function POST(req: NextRequest) {
 
       const numDays = Number(days) || 3;
       
-      // הגנה משולשת למסלולים ארוכים - עכשיו יש חוק ל-10+ ימים שימנע שגיאות 13 יום
-      const lengthConstraint = numDays >= 10 
-        ? "MASSIVE TRIP OPTIMIZATION: To prevent JSON truncation for 10+ days, you MUST generate EXACTLY 2 activities per day. Descriptions MUST be under 8 words. Never skip days."
-        : (numDays >= 7 
-          ? "LONG TRIP OPTIMIZATION: Keep activity descriptions concise and brief (1 short sentence max) to prevent JSON truncation. Generate exactly 3 activities per day."
-          : "Provide diverse, rich, and detailed descriptions (2-3 sentences). Generate 3-5 activities per day.");
+      // === התיקון המרכזי כאן: משטר טוקנים קפדני לטיולים מ-7 ימים ומעלה ===
+      const lengthConstraint = numDays >= 7 
+        ? "CRITICAL OPTIMIZATION FOR 7+ DAYS: To prevent API timeout and JSON truncation, you MUST generate EXACTLY 2-3 activities per day. Descriptions MUST be extremely short (under 10 words max). DO NOT write long paragraphs!"
+        : "Provide diverse, rich, and detailed descriptions (2-3 sentences). Generate 3-5 activities per day.";
 
       const systemPrompt = `You are an expert travel planner AI. Return ONLY a valid JSON object starting with '{' and ending with '}'. 
 All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebrew.
@@ -204,7 +202,7 @@ Rules:
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
             ],
-            temperature: 0.6,
+            temperature: 0.4, // הורדנו את רמת היצירתיות כדי שיהיה יותר ממוקד וענייני
             max_tokens: 8192
           }),
         });
