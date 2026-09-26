@@ -138,22 +138,18 @@ All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebr
 User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
 "${customPlaces || "None provided"}"
 
-CRITICAL ANTI-HALLUCINATION, OPTIMIZATION & LOGISTICS RULES:
-1. GEOGRAPHIC ANCHORING & COMMUTE LIMITS: Build each day's route geographically around the user's custom places. All activities MUST be inside the main destination city or within a short, realistic commute (max 1 hour). DO NOT suggest traveling to distant cities.
-2. MUST-SEE ATTRACTIONS: Even if specific travel styles are selected, you MUST include the absolute most iconic landmarks of the destination (e.g., Eiffel Tower, Louvre, Palace of Versailles in Paris), unless the user's custom places fill the entire schedule.
-3. LIMIT ACTIVITIES: Generate exactly 3 to 5 activities per day. Do not generate endless lists.
-4. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining in the area (e.g., "מסעדת טאפאס מקומית ברובע הגותי").
-5. STRICT REALITY CHECK: DO NOT INVENT PLACES. Every attraction MUST be a real, legally operating physical location.
-6. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values.
+CRITICAL ANTI-HALLUCINATION & OPTIMIZATION RULES:
+1. GEOGRAPHIC ANCHORING: Build each day's route geographically around the user's custom places (if provided). All activities MUST be within a realistic commute (max 1 hour) from the main destination.
+2. LIMIT ACTIVITIES: Generate exactly 3 to 5 activities per day. Do not generate endless lists.
+3. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining in the area (e.g., "מסעדת טאפאס מקומית ברובע הגותי", "בית קפה אותנטי ליד המוזיאון").
+4. STRICT REALITY CHECK & OBSCURE DESTINATIONS: DO NOT INVENT PLACES. Every attraction MUST be real. If the destination is a small town or off the beaten path, DO NOT invent generic museums. Rely strictly on real nature, geography, or authentic historical sites.
+5. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values.
 
-CRITICAL RULES FOR BILINGUAL NAMES, TICKETS & BOOKING.COM:
-7. BILINGUAL NAMES: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. Example: "מגדל אייפל (Eiffel Tower)", "אצטדיון וומבלי (Wembley Stadium)".
-8. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
-
-CRITICAL EVENT RULE (SPORTS & CONCERTS):
-9. ZERO HALLUCINATION FOR EVENTS: If the user selected 'sports' or 'concerts', you MUST NOT guess or invent matches/shows. ONLY suggest a specific professional match (e.g., PSG football, NFL) or a real world-class concert IF AND ONLY IF you have 100% factual, proven knowledge that it is scheduled on these exact dates in ${destination}. 
-IF YOU ARE NOT 100% SURE: Completely IGNORE the sports/concerts request. DO NOT suggest "checking local listings", DO NOT suggest empty stadium tours, and DO NOT suggest random sports bars. If there is no proven event, replace it with a regular high-quality sightseeing, cultural, or nightlife activity.
-10. TICKETS: For proven events or museums, provide an official website or search link to buy tickets in 'ticketLink'. If not applicable, return an empty string "".
+CRITICAL RULES FOR BILINGUAL NAMES, TICKETS & EVENTS:
+6. BILINGUAL NAMES: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. Example: "מגדל אייפל (Eiffel Tower)".
+7. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
+8. ZERO HALLUCINATION FOR EVENTS (SPORTS/CONCERTS): If 'sports' or 'concerts' are selected, ONLY suggest MASSIVE, world-class arena/stadium events (e.g., top-tier football, NFL, Stevie Wonder) IF AND ONLY IF you have 100% factual knowledge they happen on these exact dates in the destination. Otherwise, IGNORE the request completely and suggest normal sightseeing. No local bars with live music, no stadium tours.
+9. TICKETS: For proven events or museums, provide an official website or a search link to buy tickets in the 'ticketLink' field. If not applicable, return an empty string "".
 
 Required JSON Structure:
 {

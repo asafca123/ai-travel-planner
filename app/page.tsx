@@ -39,6 +39,15 @@ export default function Home() {
   const [error, setError] = useState('');
   const [editMode, setEditMode] = useState(false);
 
+  // מערכת הצ'אטבוט החדשה
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<{role: string, content: string}[]>([
+    { role: 'assistant', content: 'היי! אני העוזר האישי שלכם לטיול. צריכים עזרה עם תחנות נוספות, המלצות למסעדות סביב המסלול, או שינויים?' }
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const chatMessagesEndRef = useRef<HTMLDivElement>(null);
+
   const mapRef = useRef<any>(null);
   const mapInstanceRef = useRef<any>(null);
   const markersMapRef = useRef<{ [key: string]: any }>({});
@@ -57,6 +66,10 @@ export default function Home() {
       localStorage.setItem('savedItinerary', JSON.stringify(itinerary));
     }
   }, [itinerary]);
+
+  useEffect(() => {
+    chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages, isChatOpen]);
 
   const toggleStyle = (id: string) => {
     if (selectedStyles.includes(id)) {
@@ -165,7 +178,7 @@ export default function Home() {
         updatedItinerary.days[dayIdx].activities[actIdx].lng = parseFloat(lon).toFixed(6);
         setItinerary(updatedItinerary);
       } else {
-        alert(language === 'he' ? 'לא מצאנו קואורדינטות למקום הזה. נסה לדייק את השם (למשל להוסיף את שם העיר).' : 'Location not found. Try a more specific name.');
+        alert(language === 'he' ? 'לא מצאנו קואורדינטות למקום הזה. נסה לדייק את השם.' : 'Location not found. Try a more specific name.');
       }
     } catch (err) {
       console.error(err);
@@ -194,6 +207,35 @@ export default function Home() {
       const marker = markersMapRef.current[key];
       if (marker) marker.openPopup();
       mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
+  const handleSendChat = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+
+    const userMessage = { role: 'user', content: chatInput };
+    setChatMessages(prev => [...prev, userMessage]);
+    setChatInput('');
+    setIsChatLoading(true);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [...chatMessages, userMessage].map(m => ({ role: m.role, content: m.content })),
+          itineraryContext: itinerary
+        })
+      });
+      const data = await res.json();
+      if (data.reply) {
+        setChatMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
+      }
+    } catch (err) {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: 'אופס, משהו השתבש בתקשורת. נסו שוב.' }]);
+    } finally {
+      setIsChatLoading(false);
     }
   };
 
@@ -267,7 +309,7 @@ export default function Home() {
             });
 
             const ticketBtn = act.ticketLink && act.ticketLink.trim() !== ""
-              ? `<a href="${act.ticketLink}" target="_blank" style="display:inline-block; margin-top:8px; padding:6px 12px; background:#0ea5e9; color:white; text-decoration:none; border-radius:6px; font-weight:bold; font-size:13px;">🎟️ כרטיסים</a>` 
+              ? `<a href="${act.ticketLink}" target="_blank" style="display:inline-block; margin-top:8px; padding:6px 12px; background:#0ea5e9; color:white; text-decoration:none; border-radius:6px; font-weight:bold; font-size:13px;">🎟️ כרטיסים ומידע</a>` 
               : '';
 
             const mapsBtn = `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + ' ' + (itinerary.destination || ''))}" target="_blank" style="display:inline-block; margin-top:8px; margin-right:8px; padding:6px 12px; background:${dayColor}; color:white; text-decoration:none; border-radius:6px; font-weight:bold; font-size:13px;">📍 ניווט במפה</a>`;
@@ -578,7 +620,7 @@ export default function Home() {
                                       />
                                       <button 
                                         onClick={() => handleAutoGeocode(index, actIdx, actName)}
-                                        className="w-1/3 py-2.5 bg-sky-500/20 text-sky-300 font-bold rounded-lg hover:bg-sky-500/40 border border-sky-500/30 transition-colors text-xs flex items-center justify-center gap-1"
+                                        className="w-1/3 py-2.5 bg-sky-500/20 text-sky-300 font-bold rounded-lg hover:bg-sky-500/40 transition-colors text-xs flex items-center justify-center gap-1"
                                       >
                                         🎯 {language === 'he' ? 'מצא קואורדינטות' : 'Auto-Find'}
                                       </button>
@@ -595,7 +637,6 @@ export default function Home() {
                                         {actTime ? `${actTime} - ` : ''}{actName}
                                       </span>
                                       <div className="flex flex-wrap items-center gap-2">
-                                        {/* כפתור הניווט החדש שמבוסס על חיפוש השם בגוגל מפס */}
                                         <a 
                                           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(actName + ' ' + (itinerary.destination || ''))}`} 
                                           target="_blank" 
@@ -607,9 +648,8 @@ export default function Home() {
                                           📍 {language === 'he' ? 'נווט למקום' : 'Navigate'}
                                         </a>
 
-                                        {/* כפתור כרטיסים */}
                                         {act.ticketLink && act.ticketLink.trim() !== "" && (
-                                          <a href={act.ticketLink} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-xs px-3 py-1 bg-sky-600 text-white rounded-full font-bold hover:bg-sky-500 transition-colors">
+                                          <a href={act.ticketLink} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-xs px-3 py-1 bg-sky-600 text-white rounded-full font-bold border border-sky-500 hover:bg-sky-500 transition-colors">
                                             🎟️ כרטיסים
                                           </a>
                                         )}
@@ -652,6 +692,68 @@ export default function Home() {
           </div>
         </main>
       </div>
+
+      {/* ווידג'ט הצ'אטבוט הצף */}
+      {itinerary && (
+        <div className="fixed bottom-6 right-6 z-50">
+          {isChatOpen ? (
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-80 sm:w-96 h-[450px] flex flex-col overflow-hidden">
+              <div className="bg-slate-800 p-4 flex justify-between items-center border-b border-slate-700">
+                <span className="font-bold text-sky-300 flex items-center gap-2">
+                  ✈️ עוזר תכנון אישי
+                </span>
+                <button onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-white transition-colors text-xl leading-none">
+                  &times;
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-900/50" dir="rtl">
+                {chatMessages.map((msg, i) => (
+                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-start' : 'justify-end'}`}>
+                    <div className={`p-3 rounded-xl max-w-[85%] text-sm leading-relaxed ${
+                      msg.role === 'user' ? 'bg-sky-600 text-white rounded-br-none' : 'bg-slate-800 text-slate-200 border border-slate-700 rounded-bl-none'
+                    }`}>
+                      {msg.content}
+                    </div>
+                  </div>
+                ))}
+                {isChatLoading && (
+                  <div className="flex justify-end">
+                    <div className="p-3 bg-slate-800 text-slate-400 rounded-xl rounded-bl-none text-sm animate-pulse">
+                      מקליד...
+                    </div>
+                  </div>
+                )}
+                <div ref={chatMessagesEndRef} />
+              </div>
+
+              <form onSubmit={handleSendChat} className="p-3 bg-slate-800 border-t border-slate-700 flex gap-2" dir="rtl">
+                <input 
+                  type="text" 
+                  value={chatInput} 
+                  onChange={e => setChatInput(e.target.value)}
+                  placeholder="איך אפשר לעזור?"
+                  className="flex-1 bg-slate-900 text-white text-sm rounded-lg px-3 py-2 border border-slate-700 focus:outline-none focus:border-sky-500"
+                />
+                <button 
+                  type="submit" 
+                  disabled={!chatInput.trim() || isChatLoading}
+                  className="bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50 transition-colors"
+                >
+                  שלח
+                </button>
+              </form>
+            </div>
+          ) : (
+            <button 
+              onClick={() => setIsChatOpen(true)}
+              className="w-14 h-14 bg-sky-600 hover:bg-sky-500 rounded-full shadow-2xl flex items-center justify-center text-2xl border-2 border-sky-400/50 transition-transform hover:scale-110"
+            >
+              💬
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 }
