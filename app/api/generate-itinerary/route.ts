@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// === שינוי 1: מעבר ל-Edge Runtime של Vercel (30 שניות בחינם במקום 10) ===
-export const runtime = 'edge';
+export const runtime = 'edge'; // >>> שינוי 1: Edge Runtime ל-30 שניות בחינם
 
 // בחינם (Hobby) Vercel חותך את הפונקציה אחרי 10 שניות בכל מקרה -
 // המספר כאן רלוונטי רק בחשבון בתשלום
-export const maxDuration = 30;
+export const maxDuration = 30; // >>> שינוי 2: הוגדל ל-30
 
 let cachedModel: string = "";
 
@@ -179,11 +178,10 @@ function robustJsonParse(text: string) {
 // אז 8192 טוקנים קבועים לא מספיקים לטיולים ארוכים. llama-3.3-70b-versatile
 // תומך עד 32,768 טוקני פלט - אז מנצלים את זה בהתאם לאורך הטיול והניסיון.
 function computeMaxTokens(numDays: number, attempt: number): number {
-  // === שינוי 2: המודל המהיר תומך רק ב-8,192 טוקנים ===
-  // ביקשנו 32,000 - זה גרם לשגיאת HTTP 400 מיידית. כעת 7,000 מקסימום.
-  const HARD_CAP = 7000;
+  // >>> שינוי 3: הורדתי את התקרה ל-6000 כי המודל המהיר תומך רק ב-8192
+  const HARD_CAP = 6000;
   const baseTokens = 1000;
-  const perDayTokens = 500;
+  const perDayTokens = 400;
   let budget = baseTokens + numDays * perDayTokens;
 
   // בכל ניסיון חוזר (במקרה של חיתוך) מגדילים את התקציב משמעותית
@@ -368,10 +366,12 @@ export async function POST(req: NextRequest) {
 
     const modelName = await getAvailableGroqModel(apiKey);
 
-    // === שינוי 3 (מתוקן!): בחירת מודל עם רשימה לבנה קפדנית ===
-    // הבעיה הקודמת: נבחר 'canopylabs/orpheus-v1-english' - זה מודל TTS!
-    // הפתרון: רק מודלים של שיחה מוכרים (llama, mixtral, gemma, qwen...)
-    let finalModel = "llama-3.3-70b-versatile"; // ברירת מחדל בטוחה
+    // === חדש: מודל מהיר לטיולים ארוכים (הכרחי בחינם של Vercel) ===
+    // ב-Hobby יש רק 10 שניות לפונקציה. llama-3.3-70b מייצר ~300 טוקנים/שנייה,
+    // ולכן מסלול של 5+ ימים עלול לחרוג מהזמן. llama-3.1-8b-instant פי 2-3
+    // יותר מהיר - מספיק לטיולים ארוכים, גם אם האיכות קצת נמוכה יותר.
+    // >>> שינוי 4: בחירת מודל עם רשימה לבנה (מונע בחירת מודלי TTS כמו orpheus)
+    let finalModel = "llama-3.3-70b-versatile";
     try {
       const modelsRes = await fetch("https://api.groq.com/openai/v1/models", {
         headers: { "Authorization": `Bearer ${apiKey}` }
@@ -379,8 +379,6 @@ export async function POST(req: NextRequest) {
       if (modelsRes.ok) {
         const modelsData = await modelsRes.json();
         const availableIds: string[] = (modelsData.data || []).map((m: any) => m.id);
-        
-        // רשימה לבנה: רק מודלים ידועים כמודלי שיחה
         const allowedPrefixes = ["llama", "mixtral", "gemma", "qwen", "deepseek", "moonshot"];
         const safeChatModels = availableIds.filter((id: string) => {
           const lower = id.toLowerCase();
@@ -391,27 +389,17 @@ export async function POST(req: NextRequest) {
                               lower.includes("embed") || lower.includes("vision");
           return isKnownChat && !isForbidden;
         });
-        
-        console.log("[DEBUG] כל המודלים הזמינים:", availableIds);
-        console.log("[DEBUG] מודלי שיחה מאושרים:", safeChatModels);
-        
+        console.log("[DEBUG] מודלים מאושרים:", safeChatModels);
         if (safeChatModels.length > 0) {
-          // מחפשים מודל מהיר במיוחד
+          const preferred70b = safeChatModels.find((id: string) => id.includes("3.3-70b-versatile"));
           const fastCandidate = safeChatModels.find((id: string) => 
-            id.includes("8b-instant") || 
-            id.includes("8b-8192") ||
-            id.includes("gemma2-9b")
+            id.includes("8b-instant") || id.includes("8b-8192") || id.includes("gemma2-9b")
           );
-          finalModel = fastCandidate || safeChatModels[0];
-        } else {
-          console.error("[DEBUG] לא נמצאו מודלי שיחה מאושרים! נופלים לברירת מחדל.");
+          finalModel = preferred70b || fastCandidate || safeChatModels[0];
         }
-        
         console.log("[DEBUG] נבחר מודל:", finalModel);
       }
-    } catch (e) {
-      console.error("[DEBUG] שגיאה בשליפת מודלים:", e);
-    }
+    } catch (e) {}
 
     const isFastModel = finalModel.includes("8b") || finalModel.includes("9b");
 
@@ -447,6 +435,7 @@ export async function POST(req: NextRequest) {
     const MAX_ATTEMPTS = 1;
     let lastError = "";
     let lastWasTruncated = false;
+    let rawResponseSnapshot = ""; // >>> לוג תשובה גולמית
 
     while (attempt < MAX_ATTEMPTS && !parsedJson) {
       attempt++;
@@ -536,19 +525,17 @@ Rules:
             "Content-Type": "application/json",
             "Authorization": `Bearer ${apiKey}`,
           },
-          // === שינוי 4: הגנה מפני בקשה שנתקעת - אחרי 28 שניות מתבצע ביטול אוטומטי ===
-          // (ב-Edge יש 30 שניות, אז 28 זה הזמן הבטוח)
-          signal: AbortSignal.timeout(28000),
+          // הגנה מפני בקשה שנתקעת - אחרי 50 שניות מתבצע ביטול אוטומטי
+          signal: AbortSignal.timeout(28000), // >>> שינוי 5: 28 שניות (ב-Edge יש 30)
           body: JSON.stringify({
             model: finalModel,
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
             ],
-            temperature: 0.7, // חזרנו לטמפרטורה נורמלית כדי למנוע את הלולאות והחזרתיות של המקומות
-            max_tokens: attemptMaxTokens
-            // === שינוי 5: הוסר max_completion_tokens ===
-            // Groq דוחה בקשות עם שני השדות יחד עם שגיאת HTTP 400 - זה היה הגורם לקריסה!
+            temperature: 0.7,
+            max_tokens: attemptMaxTokens,
+            response_format: { type: "json_object" } // >>> שינוי 6: מכריח JSON תקין!
           }),
         });
 
@@ -573,6 +560,7 @@ Rules:
         const rawText = data.choices?.[0]?.message?.content;
         const finishReason = data.choices?.[0]?.finish_reason;
         lastWasTruncated = finishReason === "length";
+        rawResponseSnapshot = rawText || "";
 
         if (!rawText) {
           lastError = "Model returned empty content.";
@@ -629,14 +617,21 @@ Rules:
     // בלי מגבלת זמן (למשל Cloudflare Workers).
 
     if (!parsedJson) {
-      console.error("All attempts failed. Last error:", lastError);
+      console.error("=========================================");
+      console.error("ALL ATTEMPTS FAILED. LAST ERROR:", lastError);
+      console.error("RAW RESPONSE LENGTH:", rawResponseSnapshot.length);
+      console.error("RAW RESPONSE FIRST 800 CHARS:");
+      console.error(rawResponseSnapshot.substring(0, 800));
+      console.error("RAW RESPONSE LAST 300 CHARS:");
+      console.error(rawResponseSnapshot.substring(Math.max(0, rawResponseSnapshot.length - 300)));
+      console.error("=========================================");
       
       // מנגנון גיבוי אוטומטי מלא למקרה קיצוני – מבטיח שהאפליקציה לעולם לא תקרוס
       parsedJson = {
         tripTitle: `תקלת עומס - לא ניתן לייצר את המסלול ל${destination}`,
         destination: destination,
-        // === חדש: השגיאה האמיתית מוצגת על המסך כדי שנוכל לדעת מה הבעיה ===
-        summary: `השגיאה האמיתית מהשרת: ${lastError || "unknown error"}`,
+        // >>> חדש: השגיאה האמיתית מוצגת על המסך
+        summary: `השגיאה האמיתית מהשרת: ${lastError || "unknown error"} | אורך תשובה: ${rawResponseSnapshot.length} תווים`,
         hotelRecommendation: "בשל עומס זמני על המערכת, לא הצלחנו להשלים את בניית המסלול. שווה לנסות שוב בעוד מספר שניות.",
         bookingLink: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(destination)}`,
         days: Array.from({ length: Number(days) || 3 }, (_, i) => ({
