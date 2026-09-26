@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export const runtime = 'edge'; // >>> שינוי 1: Edge Runtime ל-30 שניות בחינם
+export const runtime = 'edge';
 
 // בחינם (Hobby) Vercel חותך את הפונקציה אחרי 10 שניות בכל מקרה -
 // המספר כאן רלוונטי רק בחשבון בתשלום
-export const maxDuration = 30; // >>> שינוי 2: הוגדל ל-30
+export const maxDuration = 30;
 
 let cachedModel: string = "";
 
@@ -178,7 +178,6 @@ function robustJsonParse(text: string) {
 // אז 8192 טוקנים קבועים לא מספיקים לטיולים ארוכים. llama-3.3-70b-versatile
 // תומך עד 32,768 טוקני פלט - אז מנצלים את זה בהתאם לאורך הטיול והניסיון.
 function computeMaxTokens(numDays: number, attempt: number): number {
-  // >>> שינוי 3: הורדתי את התקרה ל-6000 כי המודל המהיר תומך רק ב-8192
   const HARD_CAP = 6000;
   const baseTokens = 1000;
   const perDayTokens = 400;
@@ -370,7 +369,6 @@ export async function POST(req: NextRequest) {
     // ב-Hobby יש רק 10 שניות לפונקציה. llama-3.3-70b מייצר ~300 טוקנים/שנייה,
     // ולכן מסלול של 5+ ימים עלול לחרוג מהזמן. llama-3.1-8b-instant פי 2-3
     // יותר מהיר - מספיק לטיולים ארוכים, גם אם האיכות קצת נמוכה יותר.
-    // >>> שינוי 4: בחירת מודל עם רשימה לבנה (מונע בחירת מודלי TTS כמו orpheus)
     let finalModel = "llama-3.3-70b-versatile";
     try {
       const modelsRes = await fetch("https://api.groq.com/openai/v1/models", {
@@ -419,7 +417,11 @@ export async function POST(req: NextRequest) {
       if (cachedContext !== null) {
         webContext = cachedContext;
       } else {
-        const groundingQuery = `${destination} ${travelStyle} specific real named spots routes trails 2026 guide`;
+        // >>> ספורט: שאילתת חיפוש מותאמת לסגנון ספורטיבי
+        const isSportsStyle = travelStyle.toLowerCase().includes("sport") || travelStyle.toLowerCase().includes("ספורט");
+        const groundingQuery = isSportsStyle
+          ? `${destination} professional sports games schedule fixtures 2026 ${startDate || ""} top league football basketball tennis local matches tickets`
+          : `${destination} ${travelStyle} specific real named spots routes trails 2026 guide`;
         webContext = await searchWebForGrounding(groundingQuery, serperApiKey);
         if (webContext) {
           // 30 יום - מסלולי טיפוס, שבילים ואתרי טבע לא משתנים בטווח הזמן הזה
@@ -435,7 +437,7 @@ export async function POST(req: NextRequest) {
     const MAX_ATTEMPTS = 1;
     let lastError = "";
     let lastWasTruncated = false;
-    let rawResponseSnapshot = ""; // >>> לוג תשובה גולמית
+    let rawResponseSnapshot = "";
 
     while (attempt < MAX_ATTEMPTS && !parsedJson) {
       attempt++;
@@ -476,7 +478,16 @@ CRITICAL ANTI-HALLUCINATION & OPTIMIZATION RULES:
 CRITICAL RULES FOR BILINGUAL NAMES, TICKETS & EVENTS:
 8. BILINGUAL NAMES & PROPER TRANSLITERATION: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. CRITICAL: DO NOT literally translate proper nouns! Transliterate them (e.g., 'Southbank Centre' should be 'מרכז סאות'בנק'). Only translate generic words like Park, Museum, Beach. This applies to specific route/crag/trail names too (e.g., a climbing sector called "Odyssey" becomes "אודיסיאה (Odyssey)", never a literal Hebrew translation of the word).
 9. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
-10. ZERO HALLUCINATION FOR EVENTS (SPORTS/CONCERTS): ONLY suggest MASSIVE, world-class arena/stadium events (e.g., top-tier football, NFL, Stevie Wonder) IF AND ONLY IF you have 100% factual knowledge they happen on these exact dates in the destination. Otherwise, IGNORE the request completely and suggest normal sightseeing. No empty stadium tours.
+10. SPORTS & EVENTS — STRICT RULES (READ CAREFULLY):
+   - If 'sports' style is selected, the user wants to ATTEND REAL PROFESSIONAL GAMES, not tours.
+   - ALLOWED: Real scheduled matches in the country's TOP professional league (e.g., Premier League, La Liga, NBA, EuroLeague, ATP/WTA tennis, national team games, local derby).
+   - FORBIDDEN: Stadium tours, museum visits of sports clubs, empty stadium walks, "experience the atmosphere of the stadium", generic "watch locals play".
+   - If you KNOW a specific game happens during these dates (from the REAL-WORLD SEARCH RESULTS block above), use it with the exact team names and date.
+   - If you do NOT know a specific game, suggest going to a real sports venue/arena where PROFESSIONAL games are regularly held (e.g., "Camp Nou", "Madison Square Garden", "Wimbledon Centre Court") and specify the type of game to look for. DO NOT invent fake game dates.
+   - For tennis: suggest ATP/WTA tournaments or Grand Slam venues only.
+   - For basketball: suggest NBA, EuroLeague, or the top local league.
+   - NEVER suggest a stadium tour. If you cannot find a real game, do NOT use sports as the activity at all — pick a different real attraction instead.
+   - ZERO HALLUCINATION: Do not invent game scores, specific player names, or fake fixtures.
 11. TICKETS: For proven events or museums, provide an official website or a search link to buy tickets in the 'ticketLink' field. If not applicable, return an empty string "".
 12. NATURAL, NON-ROBOTIC HEBREW: Write every 'description' the way an experienced Israeli travel writer would - fluent, idiomatic, and specific to that exact place. NEVER produce a literal word-for-word translation of generic English tourism phrasing (that is what reads as robotic). Vary sentence openings and structure across activities - do not start multiple descriptions with the same word or template phrase (e.g., don't begin every single description with "תיהנו מ..." או "בקרו ב..."). Use concrete, sensory, place-specific details rather than generic filler.
 
@@ -525,17 +536,18 @@ Rules:
             "Content-Type": "application/json",
             "Authorization": `Bearer ${apiKey}`,
           },
-          // הגנה מפני בקשה שנתקעת - אחרי 50 שניות מתבצע ביטול אוטומטי
-          signal: AbortSignal.timeout(28000), // >>> שינוי 5: 28 שניות (ב-Edge יש 30)
+          // הגנה מפני בקשה שנתקעת - אחרי 28 שניות מתבצע ביטול אוטומטי
+          // (ב-Edge יש 30 שניות, אז 28 זה הזמן הבטוח)
+          signal: AbortSignal.timeout(28000),
           body: JSON.stringify({
             model: finalModel,
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
             ],
-            temperature: 0.7,
+            temperature: 0.7, // חזרנו לטמפרטורה נורמלית כדי למנוע את הלולאות והחזרתיות של המקומות
             max_tokens: attemptMaxTokens,
-            response_format: { type: "json_object" } // >>> שינוי 6: מכריח JSON תקין!
+            response_format: { type: "json_object" } // מכריח את Groq להחזיר JSON תקין
           }),
         });
 
@@ -630,7 +642,6 @@ Rules:
       parsedJson = {
         tripTitle: `תקלת עומס - לא ניתן לייצר את המסלול ל${destination}`,
         destination: destination,
-        // >>> חדש: השגיאה האמיתית מוצגת על המסך
         summary: `השגיאה האמיתית מהשרת: ${lastError || "unknown error"} | אורך תשובה: ${rawResponseSnapshot.length} תווים`,
         hotelRecommendation: "בשל עומס זמני על המערכת, לא הצלחנו להשלים את בניית המסלול. שווה לנסות שוב בעוד מספר שניות.",
         bookingLink: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(destination)}`,
