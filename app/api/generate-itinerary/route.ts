@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// === שינוי 1: מעבר ל-Edge Runtime של Vercel (מאפשר 30 שניות בחינם במקום 10) ===
+// === שינוי 1: מעבר ל-Edge Runtime של Vercel (30 שניות בחינם במקום 10) ===
 export const runtime = 'edge';
-export const maxDuration = 30;
+
+// בחינם (Hobby) Vercel חותך את הפונקציה אחרי 10 שניות בכל מקרה -
+// המספר כאן רלוונטי רק בחשבון בתשלום
+export const maxDuration = 30; // === שינוי 2: הוגדל ל-30 שניות עם Edge ===
 
 let cachedModel: string = "";
 
@@ -170,15 +173,21 @@ function robustJsonParse(text: string) {
   throw new Error("No valid JSON structure could be recovered from response");
 }
 
-// === שינוי 2: תקציב טוקנים בטוח ל-llama-3.1-8b-instant ===
-// המודל המהיר תומך במקסימום 8,192 טוקני פלט. ביקשנו קודם 32,000 - זה גרם לשגיאת 400 וקריסה.
+// === חדש: תקציב טוקנים דינמי לפי מספר הימים ===
+// עברית צורכת בממוצע פי 2-3 טוקנים לעומת אנגלית עבור אותו תוכן, ולכל
+// פעילות יש כמה שדות (time/name/description/category/lat/lng/ticketLink),
+// אז 8192 טוקנים קבועים לא מספיקים לטיולים ארוכים. llama-3.3-70b-versatile
+// תומך עד 32,768 טוקני פלט - אז מנצלים את זה בהתאם לאורך הטיול והניסיון.
 function computeMaxTokens(numDays: number, attempt: number): number {
-  const HARD_CAP = 6000; // בטוח מתחת ל-8,192
+  // === שינוי 3: המודל המהיר (llama-3.1-8b-instant) תומך רק ב-8,192 טוקנים ===
+  // ביקשנו 32,000 - זה גרם לשגיאת HTTP 400 מיידית וקריסה.
+  const HARD_CAP = 7000;
   const baseTokens = 1000;
-  const perDayTokens = 600; 
+  const perDayTokens = 500;
   let budget = baseTokens + numDays * perDayTokens;
 
-  if (attempt >= 2) budget = Math.max(budget, budget * 1.3);
+  // בכל ניסיון חוזר (במקרה של חיתוך) מגדילים את התקציב משמעותית
+  if (attempt >= 2) budget = Math.max(budget, budget * 1.6);
 
   return Math.min(HARD_CAP, Math.round(budget));
 }
@@ -359,11 +368,11 @@ export async function POST(req: NextRequest) {
 
     const modelName = await getAvailableGroqModel(apiKey);
 
-    // === שינוי 3: מודל מהיר תמיד (הכרחי בחינם של Vercel) ===
+    // === שינוי 4: מודל מהיר תמיד (הכרחי בחינם של Vercel) ===
     // ב-Edge יש 30 שניות. llama-3.3-70b מייצר ~300 טוקנים/שנייה,
-    // ולכן מסלול של 5+ ימים עלול לחרוג מהזמן. llama-3.1-8b-instant פי 2-3
-    // יותר מהיר - מספיק לטיולים ארוכים, גם אם האיכות קצת נמוכה יותר.
-    const isFastModel = true; // שונה מ-(Number(days) || 3) >= 5
+    // ולכן מסלול של 3+ ימים עלול לחרוג מהזמן. llama-3.1-8b-instant פי 2-3
+    // יותר מהיר - מספיק לכל טיול, גם אם האיכות קצת נמוכה יותר.
+    const isFastModel = true; // === היה: (Number(days) || 3) >= 5 ===
     const finalModel = isFastModel ? "llama-3.1-8b-instant" : modelName;
 
     // === חדש: חיפוש קרקוע אמיתי לפי יעד + סגנון טיול ===
@@ -477,7 +486,7 @@ Rules:
 
       // ל-llama-3.1-8b-instant יש תקרת פלט של 8192 טוקנים - לא מבקשים יותר כדי לא לקבל שגיאת 400
       const attemptMaxTokens = isFastModel
-        ? Math.min(computeMaxTokens(numDays, attempt), 7800)
+        ? Math.min(computeMaxTokens(numDays, attempt), 7000)
         : computeMaxTokens(numDays, attempt);
 
       try {
@@ -487,7 +496,7 @@ Rules:
             "Content-Type": "application/json",
             "Authorization": `Bearer ${apiKey}`,
           },
-          // === שינוי 4: הגנה מפני בקשה שנתקעת - אחרי 28 שניות מתבצע ביטול אוטומטי ===
+          // === שינוי 5: הגנה מפני בקשה שנתקעת - אחרי 28 שניות מתבצע ביטול אוטומטי ===
           // (ב-Edge יש 30 שניות, אז 28 זה הזמן הבטוח)
           signal: AbortSignal.timeout(28000),
           body: JSON.stringify({
@@ -497,10 +506,9 @@ Rules:
               { role: "user", content: userPrompt }
             ],
             temperature: 0.7, // חזרנו לטמפרטורה נורמלית כדי למנוע את הלולאות והחזרתיות של המקומות
-            max_tokens: attemptMaxTokens,
-            // חדש: Groq/OpenAI מיישנים בהדרגה את max_tokens לטובת max_completion_tokens.
-            // שולחים את שניהם כדי להישאר תואמים גם כשהתמיכה ב-max_tokens תוסר.
-            max_completion_tokens: attemptMaxTokens
+            max_tokens: attemptMaxTokens
+            // === שינוי 6: הוסר max_completion_tokens ===
+            // Groq דוחה בקשות עם שני השדות יחד עם שגיאת HTTP 400 - זה היה הגורם לקריסה!
           }),
         });
 
@@ -587,7 +595,8 @@ Rules:
       parsedJson = {
         tripTitle: `תקלת עומס - לא ניתן לייצר את המסלול ל${destination}`,
         destination: destination,
-        summary: `אופס! נראה שהמסלול שניסינו לייצר ל-${destination} למשך ${days} ימים היה ארוך או עמוס מדי, והשרת חתך את התשובה באמצע. אנא נסה ללחוץ שוב על כפתור יצירת המסלול.`,
+        // === חדש: השגיאה האמיתית מוצגת על המסך כדי שנוכל לדעת מה הבעיה ===
+        summary: `השגיאה האמיתית מהשרת: ${lastError || "unknown error"}`,
         hotelRecommendation: "בשל עומס זמני על המערכת, לא הצלחנו להשלים את בניית המסלול. שווה לנסות שוב בעוד מספר שניות.",
         bookingLink: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(destination)}`,
         days: Array.from({ length: Number(days) || 3 }, (_, i) => ({
