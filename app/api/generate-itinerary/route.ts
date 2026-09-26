@@ -139,19 +139,21 @@ All JSON keys MUST be in English, but text values MUST be in fluent Israeli Hebr
 User's Custom Places / Google Maps List to Integrate (PRIORITY ANCHORS):
 "${customPlaces || "None provided"}"
 
-CRITICAL ANTI-HALLUCINATION & OPTIMIZATION RULES:
-1. GEOGRAPHIC ANCHORING & COMMUTE: Build each day's route geographically around the user's custom places. All activities MUST be within a realistic commute (max 1 hour). DO NOT suggest traveling to distant cities.
-2. DESTINATION DNA & SYNERGY: Understand the true nature of the destination! If 'extreme sports' is selected in a famous climbing, surfing, or diving spot (e.g. Tonsai, Siargao, Katoomba), assume it's the primary purpose of the trip and dedicate the MAJORITY of the days to that sport. If 'relaxed' is selected in tropical destinations, dedicate significant time to lounging at beaches or resorts.
-3. OBSCURE DESTINATIONS: If the destination is a small town, island, or off the beaten path, DO NOT INVENT generic museums or fake attractions. Rely strictly on real nature, geography, or authentic local life.
-4. LIMIT ACTIVITIES: Generate exactly 3 to 5 activities per day. Do not generate endless lists.
-5. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining in the area (e.g., "מסעדת טאפאס מקומית ברובע הגותי", "בית קפה אותנטי ליד המוזיאון").
-6. MAP COORDINATES: Every single activity MUST include accurate 'lat' and 'lng' numeric values.
+CRITICAL LOGISTICS & ACCURACY RULES:
+1. EXACT LAND COORDINATES: Ensure 'lat' and 'lng' point precisely to the actual building, trail entrance, beach, or marina on LAND. DO NOT place coordinates in the middle of the sea or ocean!
+2. ABSOLUTELY NO REPETITION: Every single day and activity MUST be 100% unique. DO NOT repeat the same boat tour, the same waterfall, or the same beach twice. Diversify the experiences completely.
+3. EXTREME SPORTS EXPERT: If 'extreme sports' is selected, act as a local pro! Name specific world-famous climbing sectors/routes (e.g., 'Ton Sai Wall', 'Bouldering at...'), distinct surf breaks (e.g., 'Point break at...', 'Reef break at...'), or exact dive sites. Use authentic terminology. Provide a link to Surfline, MagicSeaweed, or Mountain Project in the 'ticketLink' field so they can check conditions/routes.
+4. DESTINATION DNA: If 'relaxed' is selected in tropical destinations, dedicate significant time to lounging at different beaches or resorts.
+5. OBSCURE DESTINATIONS: If the destination is a small town, island, or off the beaten path, DO NOT INVENT generic museums or fake attractions. Rely strictly on real nature, geography, or authentic local life.
+6. GEOGRAPHIC ANCHORING & COMMUTE: All activities MUST be within a realistic commute (max 1 hour). DO NOT suggest traveling to distant cities.
+7. MUST-SEE ATTRACTIONS: You MUST include the absolute most iconic landmarks of the destination, unless the user's custom places fill the schedule.
+8. NO SPECIFIC RESTAURANT NAMES: To save tokens and avoid hallucinations, DO NOT provide specific restaurant names. Instead, suggest a *type* of dining (e.g., "טברנה מקומית על החוף").
 
 CRITICAL RULES FOR BILINGUAL NAMES, TICKETS & EVENTS:
-7. BILINGUAL NAMES: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. Example: "מגדל אייפל (Eiffel Tower)".
-8. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
-9. ZERO HALLUCINATION FOR EVENTS (SPORTS/CONCERTS): If 'sports' or 'concerts' are selected, ONLY suggest MASSIVE, world-class arena/stadium events (e.g., top-tier football, NFL, Stevie Wonder) IF AND ONLY IF you have 100% factual knowledge they happen on these exact dates in the destination. Otherwise, IGNORE the request completely and suggest normal sightseeing. No local bars with live music, no empty stadium tours.
-10. TICKETS: For proven events or museums, provide an official website or a search link to buy tickets in the 'ticketLink' field. If not applicable, return an empty string "".
+9. BILINGUAL NAMES: Every activity 'name' MUST include the Hebrew name and the official English/Local name in parentheses. Example: "מפרץ הגולשים (Surfer's Bay)".
+10. BOOKING.COM LINK: Generate a specific URL in 'bookingLink' searching for the recommended neighborhood. Format: "https://www.booking.com/searchresults.html?ss=[Destination]+[Neighborhood]".
+11. ZERO HALLUCINATION FOR EVENTS (SPORTS/CONCERTS): If 'sports' or 'concerts' are selected, ONLY suggest MASSIVE, world-class arena/stadium events (e.g., top-tier football, NFL, Stevie Wonder) IF AND ONLY IF you have 100% factual knowledge they happen on these exact dates in the destination. Otherwise, IGNORE the request completely and suggest normal sightseeing. No local bars with live music, no empty stadium tours.
+12. TICKETS: For proven events, museums, or professional sports routes/surf spots, provide an official website, Surfline/Mountain Project link, or a search link to buy tickets in 'ticketLink'. If not applicable, return "".
 
 Required JSON Structure:
 {
@@ -181,7 +183,8 @@ Required JSON Structure:
 
 Rules:
 - Generate ALL requested days (Day 1 through Day ${days}) fully without skipping.
-- High diversity, no repetition between days. Write in natural, engaging Hebrew.
+- Limit to exactly 3 to 5 activities per day.
+- Write in natural, engaging Hebrew.
 - ${lengthConstraint}`;
 
       const userPrompt = `Destination: ${destination}\nStarting Point: ${startPoint || destination}\nStart Date: ${startDate || "N/A"}\nDays: ${days}\nTravel Style: ${travelStyle}`;
@@ -236,40 +239,40 @@ Rules:
       
       // מנגנון גיבוי אוטומטי מלא למקרה קיצוני – מבטיח שהאפליקציה לעולם לא תקרוס
       parsedJson = {
-        tripTitle: `מסע מדהים אל ${destination}`,
+        tripTitle: `תקלת עומס - לא ניתן לייצר את המסלול ל${destination}`,
         destination: destination,
-        summary: `טיול מתוכנן היטב ליעד ${destination} למשך ${days} ימים בסגנון ${travelStyle}. חוויה עשירה ומגוונת המשלבת את המיטב שהעיר מציעה.`,
-        hotelRecommendation: "האזור המומלץ ביותר ללינה במרכז העיר הוא הרובע המרכזי או אזור העיר העתיקה/החדשה המרכזית, המעניקים גישה נוחה ברגל ובתחבורה ציבורית לכל האטרקציות המרכזיות.",
+        summary: `אופס! נראה שהמסלול שניסינו לייצר ל-${destination} למשך ${days} ימים היה ארוך או עמוס מדי, והשרת חתך את התשובה באמצע. אנא נסה ללחוץ שוב על כפתור יצירת המסלול.`,
+        hotelRecommendation: "בשל עומס זמני על המערכת, לא הצלחנו להשלים את בניית המסלול. שווה לנסות שוב בעוד מספר שניות.",
         bookingLink: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(destination)}`,
         days: Array.from({ length: Number(days) || 3 }, (_, i) => ({
           day: i + 1,
-          title: `יום ${i + 1} - סיור וגילוי בעיר`,
+          title: `יום ${i + 1} - שגיאת שרת`,
           activities: [
             {
               time: "09:00",
-              name: "סיור בוקר במרכז העיר (City Center Morning Tour)",
-              description: "התחלת היום בסיור רגלי באתרי המרכז ההיסטורי והתרבותי.",
-              category: "תרבות",
-              lat: 51.5074,
-              lng: -0.1278,
+              name: "שגיאת מערכת (System Error)",
+              description: "התשובה מה-AI נקטעה לפני סיום. אנא לחץ שוב על 'צור מסלול טיול'.",
+              category: "שגיאה",
+              lat: 0,
+              lng: 0,
               ticketLink: ""
             },
             {
               time: "13:00",
-              name: "ארוחת צהריים בסגנון מקומי (Local Lunch Spot)",
-              description: "הפסקה לארוחה במסעדה מומלצת באזור הבילויים.",
-              category: "קולינריה",
-              lat: 51.5084,
-              lng: -0.1268,
+              name: "שגיאת מערכת (System Error)",
+              description: "התשובה מה-AI נקטעה לפני סיום. אנא לחץ שוב על 'צור מסלול טיול'.",
+              category: "שגיאה",
+              lat: 0,
+              lng: 0,
               ticketLink: ""
             },
             {
               time: "17:00",
-              name: "שוטטות ובילוי ערב (Evening Stroll)",
-              description: "התרגעות, ספיגת האווירה המקומית ובילוי בערב באזורים התוססים.",
-              category: "פנאי",
-              lat: 51.5094,
-              lng: -0.1258,
+              name: "שגיאת מערכת (System Error)",
+              description: "התשובה מה-AI נקטעה לפני סיום. אנא לחץ שוב על 'צור מסלול טיול'.",
+              category: "שגיאה",
+              lat: 0,
+              lng: 0,
               ticketLink: ""
             }
           ]
