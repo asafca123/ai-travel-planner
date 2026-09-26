@@ -368,10 +368,9 @@ export async function POST(req: NextRequest) {
 
     const modelName = await getAvailableGroqModel(apiKey);
 
-    // === שינוי 3 (קריטי!): בחירת מודל דינמית מתוך המודלים שזמינים בחשבון שלך ===
-    // הבעיה: קוד קודם כפה "llama-3.1-8b-instant" - וקיבלנו שגיאת HTTP 404
-    // כי המודל הזה לא קיים או לא נגיש בחשבון שלך.
-    // הפתרון: שולפים את רשימת המודלים האמיתית ובוחרים את המהיר מביניהם.
+    // === שינוי 3 (מתוקן!): בחירת מודל עם רשימה לבנה קפדנית ===
+    // הבעיה הקודמת: נבחר 'canopylabs/orpheus-v1-english' - זה מודל TTS!
+    // הפתרון: רק מודלים של שיחה מוכרים (llama, mixtral, gemma, qwen...)
     let finalModel = "llama-3.3-70b-versatile"; // ברירת מחדל בטוחה
     try {
       const modelsRes = await fetch("https://api.groq.com/openai/v1/models", {
@@ -381,24 +380,33 @@ export async function POST(req: NextRequest) {
         const modelsData = await modelsRes.json();
         const availableIds: string[] = (modelsData.data || []).map((m: any) => m.id);
         
-        // מחפשים מודל מהיר (8b) מתוך הרשימה הזמינה
-        const fastCandidate = availableIds.find((id: string) => 
-          id.includes("8b-instant") || 
-          id.includes("8b-8192") ||
-          id.includes("gemma2-9b")
-        );
+        // רשימה לבנה: רק מודלים ידועים כמודלי שיחה
+        const allowedPrefixes = ["llama", "mixtral", "gemma", "qwen", "deepseek", "moonshot"];
+        const safeChatModels = availableIds.filter((id: string) => {
+          const lower = id.toLowerCase();
+          const isKnownChat = allowedPrefixes.some(prefix => lower.includes(prefix));
+          const isForbidden = lower.includes("guard") || lower.includes("whisper") || 
+                              lower.includes("tts") || lower.includes("orpheus") ||
+                              lower.includes("canopy") || lower.includes("audio") ||
+                              lower.includes("embed") || lower.includes("vision");
+          return isKnownChat && !isForbidden;
+        });
         
-        if (fastCandidate) {
-          finalModel = fastCandidate;
-        } else if (availableIds.length > 0) {
-          // אם אין מודל מהיר, בוחרים את הראשון שאינו guard/whisper
-          const safe = availableIds.find((id: string) => 
-            !id.includes("guard") && !id.includes("whisper") && !id.includes("tts")
+        console.log("[DEBUG] כל המודלים הזמינים:", availableIds);
+        console.log("[DEBUG] מודלי שיחה מאושרים:", safeChatModels);
+        
+        if (safeChatModels.length > 0) {
+          // מחפשים מודל מהיר במיוחד
+          const fastCandidate = safeChatModels.find((id: string) => 
+            id.includes("8b-instant") || 
+            id.includes("8b-8192") ||
+            id.includes("gemma2-9b")
           );
-          finalModel = safe || availableIds[0];
+          finalModel = fastCandidate || safeChatModels[0];
+        } else {
+          console.error("[DEBUG] לא נמצאו מודלי שיחה מאושרים! נופלים לברירת מחדל.");
         }
         
-        console.log("[DEBUG] זמינים בחשבון שלך:", availableIds);
         console.log("[DEBUG] נבחר מודל:", finalModel);
       }
     } catch (e) {
